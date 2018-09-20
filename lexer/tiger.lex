@@ -13,13 +13,37 @@ fun atoi(s) = foldl
     (0)
     (explode(s))
 
-fun eof() = let val pos = hd(!linePos) in Tokens.EOF(pos,pos) end
+
+(* The depth of nested comments that the lexer is currently at *)
+val commentDepth = ref 0
+
+(* Handles the start of a new potentially nested comment *)
+fun startComment() =
+    commentDepth := !commentDepth + 1
+
+(* Handles the end of a potentially nested comment *)
+fun endComment(yypos) =
+    commentDepth := !commentDepth - 1
+
+
+(* Handles the EOF and errors if it is within a comment *)
+fun eof() =
+    let val pos = hd(!linePos) in
+        if !commentDepth > 0 then
+            (ErrorMsg.error pos "Unexpected end of file inside of a comment")
+        else
+            ();
+        Tokens.EOF(pos,pos)
+    end
+
 
 %%
 
 digit=[0-9];
 ws=[ \t];
 letter=[a-zA-Z];
+
+%s COMMENT;
 
 %%
 
@@ -68,6 +92,17 @@ letter=[a-zA-Z];
 <INITIAL>":"         => (Tokens.COLON(yypos, yypos + 1));
 <INITIAL>";"         => (Tokens.SEMICOLON(yypos, yypos + 1));
 <INITIAL>","         => (Tokens.COMMA(yypos, yypos + 1));
+
+<INITIAL>"/*"        => (YYBEGIN COMMENT; startComment(); continue());
+<INITIAL>"*/"        => (ErrorMsg.error yypos ("Unexpected end of comment"); continue());
+<COMMENT>"/*"        => (startComment(); continue());
+<COMMENT>"*/"        => (case !commentDepth of
+                            0 => (ErrorMsg.error yypos ("illegal end of comment"); continue())
+                        |   1 => (endComment(); YYBEGIN INITIAL; continue())
+                        |   _ => (endComment(); continue()));
+
+<COMMENT>.           => (continue());
+
 
 
 
