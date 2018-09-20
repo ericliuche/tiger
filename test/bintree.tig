@@ -1,0 +1,25 @@
+let
+    type binTree = {val : int, left : binTree, right : binTree}
+
+    var leaf : binTree {val=1, left=nil, right=nil}
+
+    var ex1 : binTree {val=2, left=leaf, right=leaf}
+
+    var ex2 : binTree {val=3, left=ex2, right=leaf}
+
+    var ex3 : binTree {val=4, left=ex2, right=ex3}
+
+
+    /* Find the height of a binary tree */
+    function height(tree : binTree) : int =
+        if tree == nil
+            then 0
+            else let
+                var leftHeight := height(tree.left)
+                var rightHeight := height(tree.right)
+                in 1 + if leftHeight>=rightHeight then leftHeight else rightHeight
+            end
+
+
+    in height(ex3)
+end
