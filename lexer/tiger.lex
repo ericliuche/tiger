@@ -20,6 +20,8 @@ fun curLinePos(yypos) =
     (!lineNum, colNumber(yypos, !linePos, !lineNum))
 
 
+
+
 (* Converts the given string representation of an integer to an integer *)
 fun atoi(s) = foldl
     (fn (digit, sum) => (10 * sum) + (ord(digit) - ord(#"0")))
@@ -39,23 +41,38 @@ fun endComment(yypos) =
     commentDepth := !commentDepth - 1    
 
 (* Ensures that newlines within a string literal are accounted for in the lexer position *)
-fun handleStringLiteral(text, yypos) = (
-    lineNum := !lineNum +
-        (foldr
-            (fn (char, count) => count + (if char = #"\n" then 1 else 0))
-            (0)
-            (explode(text)));
-    linePos := yypos :: !linePos)
+fun handleStringLiteral(text, yypos) = 
+    let
+        val idxs = List.tabulate(size(text), (fn n => n))
+        val zippedText = ListPair.zip(idxs, explode(text))
+    in
+        map (fn (idx, char) =>
+            if (char = #"\n") then
+                (lineNum := !lineNum + 1; linePos := (yypos + idx) :: !linePos)
+            else ())
+            (zippedText)
+    end
 
+(* Tracks if the lexer is currently within a string literal *)
+val inString = ref false
+
+(* Controls whether the lexer is currently within a string literal *)
+fun beginString() = inString := true
+fun endString() = inString := false
+
+
+val eofPos = ref 0
 
 (* Handles the EOF and errors if it is within a comment *)
 fun eof() =
-    let val pos = hd(!linePos) in
+    let val yypos = hd(!linePos) in
         if !commentDepth > 0 then
-            (ErrorMsg.error pos "Unexpected end of file inside of a comment")
+            (ErrorMsg.error yypos "Unexpected end of file inside of a comment")
+        else if !inString then
+            (ErrorMsg.error yypos "Unexpected end of file inside string literal")
         else
             ();
-        Tokens.EOF(pos,pos)
+        Tokens.EOF(curLinePos(!eofPos))
     end
 
 
@@ -76,10 +93,11 @@ escapeSequence="\\"("n"|"t"|"\\"|("^"{ctrlChar})|{asciiCode}|"\""|({nonprintable
 
 
 <INITIAL>\n   => (handleNewline(yypos); continue());
+<INITIAL>$    => (eofPos := yypos; continue());
 <INITIAL>{ws} => (continue());
 
 <INITIAL>"type"      => (Tokens.TYPE(curLinePos(yypos)));
-<INITIAL>"var"  	 => (Tokens.VAR(curLinePos(yypos)));
+<INITIAL>"var"       => (Tokens.VAR(curLinePos(yypos)));
 <INITIAL>"function"  => (Tokens.FUNCTION(curLinePos(yypos)));
 <INITIAL>"break"     => (Tokens.BREAK(curLinePos(yypos)));
 <INITIAL>"of"        => (Tokens.OF(curLinePos(yypos)));
@@ -132,9 +150,9 @@ escapeSequence="\\"("n"|"t"|"\\"|("^"{ctrlChar})|{asciiCode}|"\""|({nonprintable
 <COMMENT>.           => (continue());
 
 
-<INITIAL>"\""                       => (YYBEGIN STRING; continue());
+<INITIAL>"\""                       => (YYBEGIN STRING; beginString(); continue());
 <STRING>([^\"\\]|{escapeSequence})* => (handleStringLiteral(yytext, yypos); Tokens.STRING(yytext, !lineNum, colNumber(yypos, !linePos, !lineNum)));
-<STRING>"\""                        => (YYBEGIN INITIAL; continue());
+<STRING>"\""                        => (YYBEGIN INITIAL; endString(); continue());
 <STRING>.            => (ErrorMsg.error yypos ("illegal charater in string"); continue());
 <INITIAL>"\"\""      => (Tokens.STRING("", !lineNum, colNumber(yypos, !linePos, !lineNum)));
 
