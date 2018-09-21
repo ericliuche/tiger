@@ -1,0 +1,30 @@
+Partners: Nick Flanders, Chenyang Liu
+
+Comments:
+In order to handle nested comments, we keep a reference to commentDepth that is incremented
+in startComment() and decremented in endComment(). When we first enter a comment, the state
+is switched to COMMENT and commentDepth is set to 1. Upon matching another opening comment /*
+commentDepth continues to be incremented. Upon matching close comments */ commentDepth
+is decremented and if commentDepth is 0, we switch back to state INITIAL. If either we
+are not currently in a comment or commentDepth is 0 and */ is parsed, an error is returned.
+When a newline is matched within a comment, we increment our line tracking variables.
+
+Errors:
+In our implementation of error handling, we return the first instance of an error and 
+stop lexing. When an error is found, an ErrorMsg instance is returned containing 
+a description of the error and the line and character offsets. In order to keep track of the
+correct line and character offsets in the INITIAL mode, lineNum and linePos are updated
+when a newline is matched. In COMMENT mode, a separate newline match is used to update the
+variables. In STRING mode, newlines that are not escaped by a single \ are considered errors.
+We use a general regex to parse any legal string and that string is then mapped over to
+update lineNum and linePos for any newline in the mached string. When an error is detected
+we enter an ERROR state that ignores the rest of the file.
+
+End-of-file:
+Due to the INITIAL, COMMENT, and STRING states, we must keep track of which state we are
+in when processing eof(). In the case of COMMENT and STRING, this will need to produce
+an error. To check if we are in the COMMENT state, we examine the commentDepth variable and
+if it is greater than 0, we will produce an error. To check for the STRING state, we use an
+auxillaray inString that is set when entering and exiting a string. For these cases of
+incorrect state during eof(), an error is produced at posiion of the end of the file, consistent
+with how other languages such as Python handles the error.
