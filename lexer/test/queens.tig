@@ -18,9 +18,14 @@ let
     function printboard() =
         (for i := 0 to N-1
             do (for j := 0 to N-1
-                do print(if col[i]=j then " O" else " .");
+                do print(if col[i]=j then " O" else " \254 .");
                 print("\n"));
-            print("\n"))
+            print("\n \
+
+
+
+
+                   \ foo"))
 
     function try(c:int) =
         if c=N then printboard()
@@ -32,4 +37,5 @@ let
                 try(c+1);
                 row[r] := 0; diag1[r+c] := 0;
                 diag2[r+7-c] := 0)
-in try(0) end              
+
+in try(0) end

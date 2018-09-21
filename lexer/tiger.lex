@@ -21,7 +21,6 @@ fun curLinePos(yypos) =
 
 
 
-
 (* Converts the given string representation of an integer to an integer *)
 fun atoi(s) = foldl
     (fn (digit, sum) => (10 * sum) + (ord(digit) - ord(#"0")))
@@ -61,18 +60,16 @@ fun beginString() = inString := true
 fun endString() = inString := false
 
 
-val eofPos = ref 0
-
 (* Handles the EOF and errors if it is within a comment *)
 fun eof() =
-    let val yypos = hd(!linePos) in
+    let val pos = hd(!linePos) in
         if !commentDepth > 0 then
-            (ErrorMsg.error yypos "Unexpected end of file inside of a comment")
+            (ErrorMsg.error pos "Unexpected end of file inside of a comment")
         else if !inString then
-            (ErrorMsg.error yypos "Unexpected end of file inside string literal")
+            (ErrorMsg.error pos "Unexpected end of file inside string literal")
         else
             ();
-        Tokens.EOF(curLinePos(!eofPos))
+        Tokens.EOF(curLinePos(pos))
     end
 
 
@@ -87,14 +84,13 @@ ctrlChar=[A-Z@^_]|"\\"|"["|"]";
 asciiCode=([01]{digit}{digit})|(2[0-4]{digit})|(25[0-5]);
 escapeSequence="\\"("n"|"t"|"\\"|("^"{ctrlChar})|{asciiCode}|"\""|({nonprintable}+"\\"));
 
-%s COMMENT STRING;
+%s COMMENT STRING ERROR;
 
 %%
 
 
-<INITIAL>\n   => (handleNewline(yypos); continue());
-<INITIAL>$    => (eofPos := yypos; continue());
-<INITIAL>{ws} => (continue());
+<INITIAL>\n    => (handleNewline(yypos); continue());
+<INITIAL>{ws}  => (continue());
 
 <INITIAL>"type"      => (Tokens.TYPE(curLinePos(yypos)));
 <INITIAL>"var"       => (Tokens.VAR(curLinePos(yypos)));
@@ -139,10 +135,10 @@ escapeSequence="\\"("n"|"t"|"\\"|("^"{ctrlChar})|{asciiCode}|"\""|({nonprintable
 <INITIAL>","         => (Tokens.COMMA(curLinePos(yypos)));
 
 <INITIAL>"/*"        => (YYBEGIN COMMENT; startComment(); continue());
-<INITIAL>"*/"        => (ErrorMsg.error yypos ("Unexpected end of comment"); continue());
+<INITIAL>"*/"        => (ErrorMsg.error yypos ("Unexpected end of comment"); YYBEGIN ERROR; continue());
 <COMMENT>"/*"        => (startComment(); continue());
 <COMMENT>"*/"        => (case !commentDepth of
-                            0 => (ErrorMsg.error yypos ("illegal end of comment"); continue())
+                            0 => (ErrorMsg.error yypos ("illegal end of comment"); YYBEGIN ERROR; continue())
                         |   1 => (endComment(); YYBEGIN INITIAL; continue())
                         |   _ => (endComment(); continue()));
 <COMMENT>"\n"        => (handleNewline(yypos); continue());                        
@@ -151,19 +147,22 @@ escapeSequence="\\"("n"|"t"|"\\"|("^"{ctrlChar})|{asciiCode}|"\""|({nonprintable
 
 
 <INITIAL>"\""                       => (YYBEGIN STRING; beginString(); continue());
-<STRING>([^\"\\]|{escapeSequence})* => (handleStringLiteral(yytext, yypos); Tokens.STRING(yytext, !lineNum, colNumber(yypos, !linePos, !lineNum)));
+<STRING>([^\"\\]|{escapeSequence})* => (let val startLineNum = !lineNum in
+                                            handleStringLiteral(yytext, yypos);
+                                            Tokens.STRING(
+                                                yytext,
+                                                startLineNum,
+                                                colNumber(yypos, !linePos, startLineNum))
+                                        end);
 <STRING>"\""                        => (YYBEGIN INITIAL; endString(); continue());
-<STRING>.            => (ErrorMsg.error yypos ("illegal charater in string"); continue());
+<STRING>.            => (ErrorMsg.error yypos ("illegal charater in string"); YYBEGIN ERROR; continue());
 <INITIAL>"\"\""      => (Tokens.STRING("", !lineNum, colNumber(yypos, !linePos, !lineNum)));
-
-
 
 
 <INITIAL>{digit}+  => (Tokens.INT(atoi(yytext), !lineNum, colNumber(yypos, !linePos, !lineNum)));
 
-
 <INITIAL>{letter}({letter}|{digit})*  => (Tokens.ID(yytext, !lineNum, colNumber(yypos, !linePos, !lineNum)));
 
 
-.  => (ErrorMsg.error yypos ("illegal character " ^ yytext); continue());
-
+<ERROR>.    => (continue());
+<INITIAL>.  => (ErrorMsg.error yypos ("illegal character " ^ yytext); YYBEGIN ERROR; continue());
