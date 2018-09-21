@@ -23,7 +23,8 @@ fun startComment() =
 
 (* Handles the end of a potentially nested comment *)
 fun endComment(yypos) =
-    commentDepth := !commentDepth - 1
+    commentDepth := !commentDepth - 1    
+
 
 
 (* Handles the EOF and errors if it is within a comment *)
@@ -40,16 +41,21 @@ fun eof() =
 %%
 
 digit=[0-9];
-ws=[ \t];
 letter=[a-zA-Z];
+ws=[ \t];
 
-%s COMMENT;
+nonprintable=[ \n\t\f];
+ctrlChar=[A-Z@^_]|"\\"|"["|"]";
+asciiCode=([01]{digit}{digit})|(2[0-4]{digit})|(25[0-5]);
+escapeSequence="\\"("n"|"t"|"\\"|("^"{ctrlChar})|{asciiCode}|"\""|({nonprintable}+"\\"));
+
+%s COMMENT STRING;
 
 %%
 
 
-\n   => (lineNum := !lineNum + 1; linePos := yypos :: !linePos; continue());
-{ws} => (continue());
+<INITIAL>\n   => (lineNum := !lineNum + 1; linePos := yypos :: !linePos; continue());
+<INITIAL>{ws} => (continue());
 
 <INITIAL>"type"      => (Tokens.TYPE(yypos, yypos + 4));
 <INITIAL>"var"  	 => (Tokens.VAR(yypos, yypos + 3));
@@ -102,6 +108,13 @@ letter=[a-zA-Z];
                         |   _ => (endComment(); continue()));
 
 <COMMENT>.           => (continue());
+
+
+<INITIAL>"\""                       => (YYBEGIN STRING; continue());
+<STRING>([^\"\\]|{escapeSequence})* => (Tokens.STRING(yytext, yypos, yypos + size(yytext)));
+<STRING>"\""                        => (YYBEGIN INITIAL; continue());
+<STRING>.            => (ErrorMsg.error yypos ("illegal charater in string"); continue());
+<INITIAL>"\"\""      => (Tokens.STRING("", yypos, yypos));
 
 
 

@@ -1,0 +1,30 @@
+let
+
+
+    var example0 := ""
+    var example1 := "hello world"
+    var example2 := "\n\n\t\t  \\"
+    var example3 := "\123 \^A\^Z"
+
+    var lineContinuationExample := "abc \ 
+
+
+
+
+
+
+
+
+
+                                                                
+
+
+
+
+
+                         \ hello \255"
+
+
+in 2 * 2
+
+end
