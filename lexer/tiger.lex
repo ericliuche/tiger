@@ -6,6 +6,19 @@ val lineNum = ErrorMsg.lineNum
 val linePos = ErrorMsg.linePos
 fun err(p1, p2) = ErrorMsg.error p1
 
+(* Increments the line count and tracks the current lexer position *)
+fun handleNewline(yypos) = (lineNum := !lineNum + 1; linePos := yypos :: !linePos)
+    
+(* Finds the column number for the given position starting from the given line number *)
+fun colNumber(yypos, startPosList, lineNumber) =
+    case startPosList of
+        (a::rest) => if a < yypos then (yypos - a) else colNumber(yypos, rest, lineNumber - 1)
+    |   _ => 0
+
+(* Gets the current line and column numbers for the parser *)
+fun curLinePos(yypos) =
+    (!lineNum, colNumber(yypos, !linePos, !lineNum))
+
 
 (* Converts the given string representation of an integer to an integer *)
 fun atoi(s) = foldl
@@ -25,6 +38,14 @@ fun startComment() =
 fun endComment(yypos) =
     commentDepth := !commentDepth - 1    
 
+(* Ensures that newlines within a string literal are accounted for in the lexer position *)
+fun handleStringLiteral(text, yypos) = (
+    lineNum := !lineNum +
+        (foldr
+            (fn (char, count) => count + (if char = #"\n" then 1 else 0))
+            (0)
+            (explode(text)));
+    linePos := yypos :: !linePos)
 
 
 (* Handles the EOF and errors if it is within a comment *)
@@ -54,50 +75,50 @@ escapeSequence="\\"("n"|"t"|"\\"|("^"{ctrlChar})|{asciiCode}|"\""|({nonprintable
 %%
 
 
-<INITIAL>\n   => (lineNum := !lineNum + 1; linePos := yypos :: !linePos; continue());
+<INITIAL>\n   => (handleNewline(yypos); continue());
 <INITIAL>{ws} => (continue());
 
-<INITIAL>"type"      => (Tokens.TYPE(yypos, yypos + 4));
-<INITIAL>"var"  	 => (Tokens.VAR(yypos, yypos + 3));
-<INITIAL>"function"  => (Tokens.FUNCTION(yypos, yypos + 8));
-<INITIAL>"break"     => (Tokens.BREAK(yypos, yypos + 5));
-<INITIAL>"of"        => (Tokens.OF(yypos, yypos + 2));
-<INITIAL>"end"       => (Tokens.END(yypos, yypos + 3));
-<INITIAL>"in"        => (Tokens.IN(yypos, yypos + 2));
-<INITIAL>"nil"       => (Tokens.NIL(yypos, yypos + 3));
-<INITIAL>"let"       => (Tokens.LET(yypos, yypos + 3));
-<INITIAL>"do"        => (Tokens.DO(yypos, yypos + 2));
-<INITIAL>"to"        => (Tokens.TO(yypos, yypos + 2));
-<INITIAL>"for"       => (Tokens.FOR(yypos, yypos + 3));
-<INITIAL>"while"     => (Tokens.WHILE(yypos, yypos + 5));
-<INITIAL>"else"      => (Tokens.ELSE(yypos, yypos + 4));
-<INITIAL>"then"      => (Tokens.THEN(yypos, yypos + 4));
-<INITIAL>"if"        => (Tokens.IF(yypos, yypos + 2));
-<INITIAL>"array of"  => (Tokens.ARRAY(yypos, yypos + 8));
+<INITIAL>"type"      => (Tokens.TYPE(curLinePos(yypos)));
+<INITIAL>"var"  	 => (Tokens.VAR(curLinePos(yypos)));
+<INITIAL>"function"  => (Tokens.FUNCTION(curLinePos(yypos)));
+<INITIAL>"break"     => (Tokens.BREAK(curLinePos(yypos)));
+<INITIAL>"of"        => (Tokens.OF(curLinePos(yypos)));
+<INITIAL>"end"       => (Tokens.END(curLinePos(yypos)));
+<INITIAL>"in"        => (Tokens.IN(curLinePos(yypos)));
+<INITIAL>"nil"       => (Tokens.NIL(curLinePos(yypos)));
+<INITIAL>"let"       => (Tokens.LET(curLinePos(yypos)));
+<INITIAL>"do"        => (Tokens.DO(curLinePos(yypos)));
+<INITIAL>"to"        => (Tokens.TO(curLinePos(yypos)));
+<INITIAL>"for"       => (Tokens.FOR(curLinePos(yypos)));
+<INITIAL>"while"     => (Tokens.WHILE(curLinePos(yypos)));
+<INITIAL>"else"      => (Tokens.ELSE(curLinePos(yypos)));
+<INITIAL>"then"      => (Tokens.THEN(curLinePos(yypos)));
+<INITIAL>"if"        => (Tokens.IF(curLinePos(yypos)));
+<INITIAL>"array of"  => (Tokens.ARRAY(curLinePos(yypos)));
 
-<INITIAL>":="        => (Tokens.ASSIGN(yypos, yypos + 2));
-<INITIAL>"|"         => (Tokens.OR(yypos, yypos + 1));
-<INITIAL>"&"         => (Tokens.AND(yypos, yypos + 3));
-<INITIAL>">="        => (Tokens.GE(yypos, yypos + 2));
-<INITIAL>">"         => (Tokens.GT(yypos, yypos + 1));
-<INITIAL>"<="        => (Tokens.LE(yypos, yypos + 2));
-<INITIAL>"<"         => (Tokens.LT(yypos, yypos + 1));
-<INITIAL>"<>"        => (Tokens.NEQ(yypos, yypos + 2));
-<INITIAL>"="         => (Tokens.EQ(yypos, yypos + 1));
-<INITIAL>"/"         => (Tokens.DIVIDE(yypos, yypos + 1));
-<INITIAL>"*"         => (Tokens.TIMES(yypos, yypos + 1));
-<INITIAL>"-"         => (Tokens.MINUS(yypos, yypos + 1));
-<INITIAL>"+"         => (Tokens.PLUS(yypos, yypos + 1));
-<INITIAL>"."         => (Tokens.DOT(yypos, yypos + 1));
-<INITIAL>"}"         => (Tokens.RBRACE(yypos, yypos + 1));
-<INITIAL>"{"         => (Tokens.LBRACE(yypos, yypos + 1));
-<INITIAL>"]"         => (Tokens.RBRACK(yypos, yypos + 1));
-<INITIAL>"["         => (Tokens.LBRACK(yypos, yypos + 1));
-<INITIAL>")"         => (Tokens.RPAREN(yypos, yypos + 1));
-<INITIAL>"("         => (Tokens.LPAREN(yypos, yypos + 1));
-<INITIAL>":"         => (Tokens.COLON(yypos, yypos + 1));
-<INITIAL>";"         => (Tokens.SEMICOLON(yypos, yypos + 1));
-<INITIAL>","         => (Tokens.COMMA(yypos, yypos + 1));
+<INITIAL>":="        => (Tokens.ASSIGN(curLinePos(yypos)));
+<INITIAL>"|"         => (Tokens.OR(curLinePos(yypos)));
+<INITIAL>"&"         => (Tokens.AND(curLinePos(yypos)));
+<INITIAL>">="        => (Tokens.GE(curLinePos(yypos)));
+<INITIAL>">"         => (Tokens.GT(curLinePos(yypos)));
+<INITIAL>"<="        => (Tokens.LE(curLinePos(yypos)));
+<INITIAL>"<"         => (Tokens.LT(curLinePos(yypos)));
+<INITIAL>"<>"        => (Tokens.NEQ(curLinePos(yypos)));
+<INITIAL>"="         => (Tokens.EQ(curLinePos(yypos)));
+<INITIAL>"/"         => (Tokens.DIVIDE(curLinePos(yypos)));
+<INITIAL>"*"         => (Tokens.TIMES(curLinePos(yypos)));
+<INITIAL>"-"         => (Tokens.MINUS(curLinePos(yypos)));
+<INITIAL>"+"         => (Tokens.PLUS(curLinePos(yypos)));
+<INITIAL>"."         => (Tokens.DOT(curLinePos(yypos)));
+<INITIAL>"}"         => (Tokens.RBRACE(curLinePos(yypos)));
+<INITIAL>"{"         => (Tokens.LBRACE(curLinePos(yypos)));
+<INITIAL>"]"         => (Tokens.RBRACK(curLinePos(yypos)));
+<INITIAL>"["         => (Tokens.LBRACK(curLinePos(yypos)));
+<INITIAL>")"         => (Tokens.RPAREN(curLinePos(yypos)));
+<INITIAL>"("         => (Tokens.LPAREN(curLinePos(yypos)));
+<INITIAL>":"         => (Tokens.COLON(curLinePos(yypos)));
+<INITIAL>";"         => (Tokens.SEMICOLON(curLinePos(yypos)));
+<INITIAL>","         => (Tokens.COMMA(curLinePos(yypos)));
 
 <INITIAL>"/*"        => (YYBEGIN COMMENT; startComment(); continue());
 <INITIAL>"*/"        => (ErrorMsg.error yypos ("Unexpected end of comment"); continue());
@@ -106,23 +127,24 @@ escapeSequence="\\"("n"|"t"|"\\"|("^"{ctrlChar})|{asciiCode}|"\""|({nonprintable
                             0 => (ErrorMsg.error yypos ("illegal end of comment"); continue())
                         |   1 => (endComment(); YYBEGIN INITIAL; continue())
                         |   _ => (endComment(); continue()));
+<COMMENT>"\n"        => (handleNewline(yypos); continue());                        
 
 <COMMENT>.           => (continue());
 
 
 <INITIAL>"\""                       => (YYBEGIN STRING; continue());
-<STRING>([^\"\\]|{escapeSequence})* => (Tokens.STRING(yytext, yypos, yypos + size(yytext)));
+<STRING>([^\"\\]|{escapeSequence})* => (handleStringLiteral(yytext, yypos); Tokens.STRING(yytext, !lineNum, colNumber(yypos, !linePos, !lineNum)));
 <STRING>"\""                        => (YYBEGIN INITIAL; continue());
 <STRING>.            => (ErrorMsg.error yypos ("illegal charater in string"); continue());
-<INITIAL>"\"\""      => (Tokens.STRING("", yypos, yypos));
+<INITIAL>"\"\""      => (Tokens.STRING("", !lineNum, colNumber(yypos, !linePos, !lineNum)));
 
 
 
 
-<INITIAL>{digit}+  => (Tokens.INT(atoi(yytext), yypos, yypos + size(yytext)));
+<INITIAL>{digit}+  => (Tokens.INT(atoi(yytext), !lineNum, colNumber(yypos, !linePos, !lineNum)));
 
 
-<INITIAL>{letter}({letter}|{digit})*  => (Tokens.ID(yytext, yypos, yypos + size(yytext)));
+<INITIAL>{letter}({letter}|{digit})*  => (Tokens.ID(yytext, !lineNum, colNumber(yypos, !linePos, !lineNum)));
 
 
 .  => (ErrorMsg.error yypos ("illegal character " ^ yytext); continue());

@@ -1,5 +1,7 @@
 let
 
+    /* Test /* Nested comment
+    */ */
 
     var example0 := ""
     var example1 := "hello world"
@@ -22,7 +24,7 @@ let
 
 
 
-                         \ hello \255"
+                         \ hello \256"
 
 
 in 2 * 2
