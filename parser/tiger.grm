@@ -11,7 +11,7 @@
   | BREAK | NIL
   | FUNCTION | VAR | TYPE 
 
-%nonterm  exp | program
+%nonterm  exp | program | arithexp
 
 %pos int
 %verbose
@@ -40,4 +40,8 @@
 program	: exp				()
 
 	
-exp: 			()
+exp : arithexp      () 
+
+
+arithexp : arithexp PLUS INT      ()
+         | INT                    ()

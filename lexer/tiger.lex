@@ -1,5 +1,8 @@
+type svalue = Tokens.svalue
 type pos = int
-type lexresult = Tokens.token
+type ('a,'b) token = ('a,'b) Tokens.token
+type lexresult = (svalue, pos) token
+
 
 (* Error handling *)
 val lineNum = ErrorMsg.lineNum
@@ -63,6 +66,8 @@ fun eof() =
 
 
 %%
+
+%header (functor TigerLexFun(structure Tokens: Tiger_TOKENS));
 
 digit=[0-9];
 letter=[a-zA-Z];
