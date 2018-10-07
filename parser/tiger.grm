@@ -12,11 +12,12 @@
   | FUNCTION | VAR | TYPE 
 
 %nonterm  exp | program
-        | arithexp | compexp | letexp | funcexp | assignexp
+        | arithexp | compexp | letexp | funcexp | assignexp | recordexp
         | expseq | nonemptyexpseq
         | vardec | fundec | typedec | decseq
         | ty | tyfield | tyfieldseq | nonemptytyfieldseq
         | arglist | nonemptyarglist
+        | recordfield | recordfieldseq | nonemptyrecordfieldseq
         | leftval
 
 %pos int
@@ -62,6 +63,8 @@ exp : arithexp      ()
     | letexp        ()
     | funcexp       ()
     | assignexp     ()
+    | recordexp     ()
+    | leftval       ()
     | INT           ()
     | STRING        ()
 
@@ -88,8 +91,8 @@ tyfieldseq : (* epsilon *)       ()
 
 
 
-vardec : VAR ID ASSIGN exp        ()
-       | VAR COLON ID ASSIGN exp  ()
+vardec : VAR ID ASSIGN exp           ()
+       | VAR ID COLON ID ASSIGN exp  ()
 
 fundec : FUNCTION ID LPAREN tyfieldseq RPAREN EQ exp          ()
        | FUNCTION ID LPAREN tyfieldseq RPAREN COLON ID EQ exp ()
@@ -118,10 +121,6 @@ arglist : (* epsilon *)     ()
 funcexp : ID LPAREN arglist RPAREN  ()
 
 
-
-
-
-
 arithexp : exp PLUS exp     %prec PLUS   ()
          | exp MINUS exp    %prec MINUS  ()
          | exp TIMES exp    %prec TIMES  ()
@@ -144,3 +143,14 @@ leftval : ID                         ()
         | leftval LBRACK exp RBRACK  ()
 
 assignexp : leftval ASSIGN exp  %prec ASSIGN ()
+
+
+recordfield : ID EQ exp  ()
+
+recordfieldseq : (* epsilon *)           ()
+               | nonemptyrecordfieldseq  ()
+
+nonemptyrecordfieldseq : recordfield                               ()
+                       | nonemptyrecordfieldseq COMMA recordfield  ()
+
+recordexp : ID LBRACE recordfieldseq RBRACE  ()
