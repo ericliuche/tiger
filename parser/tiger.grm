@@ -19,6 +19,7 @@
         | arglist | nonemptyarglist
         | recordfield | recordfieldseq | nonemptyrecordfieldseq
         | leftval
+        | ifthenexp | whileexp | forexp | breakexp
 
 %pos int
 %verbose
@@ -38,8 +39,8 @@
 %value STRING ("")
 
 %nonassoc ID
-%nonassoc LBRACK
-%nonassoc OF
+%nonassoc LBRACK OF
+%nonassoc THEN ELSE WHILE DO
 
 %right ASSIGN
 
@@ -62,9 +63,14 @@ exp : arithexp      ()
     | recordexp     ()
     | arrayexp      ()
     | leftval       ()
+    | ifthenexp     ()
+    | whileexp      ()
+    | forexp        ()
+    | breakexp      ()
     | LPAREN expseq RPAREN ()
     | INT           ()
     | STRING        ()
+    | NIL           ()
 
 
 (* Sequences of expression *)
@@ -154,4 +160,13 @@ nonemptyrecordfieldseq : recordfield                               ()
 
 recordexp : ID LBRACE recordfieldseq RBRACE  ()
 
-arrayexp: ID LBRACK exp RBRACK OF exp ()
+arrayexp : ID LBRACK exp RBRACK OF exp ()
+
+ifthenexp : IF exp THEN exp           ()
+          | IF exp THEN exp ELSE exp  ()
+
+whileexp : WHILE exp DO exp  ()
+
+forexp : FOR ID ASSIGN exp TO exp DO exp  ()
+
+breakexp : BREAK  ()
