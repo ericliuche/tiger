@@ -11,23 +11,13 @@
   | BREAK | NIL
   | FUNCTION | VAR | TYPE 
 
-%nonterm  exp
-        | program
-        | arithexp
-        | expseq
-        | nonemptyexpseq
-        | vardec
-        | fundec
-        | typedec
-        | ty
-        | tyfield
-        | tyfieldseq
-        | nonemptytyfieldseq
-        | decseq
-        | letexp
-        | funcexp
-        | arglist
-        | nonemptyarglist
+%nonterm  exp | program
+        | arithexp | compexp | letexp | funcexp | assignexp
+        | expseq | nonemptyexpseq
+        | vardec | fundec | typedec | decseq
+        | ty | tyfield | tyfieldseq | nonemptytyfieldseq
+        | arglist | nonemptyarglist
+        | leftval
 
 %pos int
 %verbose
@@ -47,26 +37,33 @@
 %value STRING ("")
 
 
+%right ASSIGN
 
+%nonassoc EQ
+%nonassoc NEQ
+%nonassoc GT
+%nonassoc GE
+%nonassoc LT
+%nonassoc LE
+
+%left PLUS
+%left MINUS
+%left TIMES
+%left DIVIDE
 
 
 %%
 
-(* This is a skeleton grammar file, meant to illustrate what kind of
- * declarations are necessary above the %% mark.  Students are expected
- *  to replace the two dummy productions below with an actual grammar. 
- *)
-
 program	: expseq		()
 
 	
-exp : arithexp      () 
+exp : arithexp      ()
+    | compexp       () 
     | letexp        ()
     | funcexp       ()
+    | assignexp     ()
+    | INT           ()
     | STRING        ()
-
-
-
 
 
 (* Sequences of expression *)
@@ -125,11 +122,25 @@ funcexp : ID LPAREN arglist RPAREN  ()
 
 
 
-arithexp : arithexp PLUS INT      ()
-         | arithexp MINUS INT     ()
-         | arithexp TIMES INT     ()
-         | arithexp DIVIDE INT    () 
-         | INT                    ()
+arithexp : exp PLUS exp     %prec PLUS   ()
+         | exp MINUS exp    %prec MINUS  ()
+         | exp TIMES exp    %prec TIMES  ()
+         | exp DIVIDE exp   %prec DIVIDE () 
+
+
+compexp : exp EQ exp    %prec EQ     ()
+        | exp NEQ exp   %prec NEQ    ()
+        | exp GT exp    %prec GT     ()
+        | exp GE exp    %prec GE     ()
+        | exp LT exp    %prec LT     ()
+        | exp LE exp    %prec LE     ()
 
 
 letexp : LET decseq IN expseq END  ()
+
+
+leftval : ID                         ()
+        | leftval DOT ID             ()
+        | leftval LBRACK exp RBRACK  ()
+
+assignexp : leftval ASSIGN exp  %prec ASSIGN ()
