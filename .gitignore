@@ -1,2 +1,6 @@
 .DS_STORE
 .cm/
+lexer/tiger.lex.sml
+parser/tiger.grm.desc
+parser/tiger.grm.sig
+parser/tiger.grm.sml

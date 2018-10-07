@@ -40,7 +40,6 @@
 
 %nonassoc ID
 %nonassoc LBRACK OF
-%nonassoc THEN ELSE WHILE DO
 
 %right ASSIGN
 
@@ -49,6 +48,9 @@
 %left PLUS MINUS
 %left TIMES DIVIDE 
 
+%nonassoc THEN
+%nonassoc ELSE
+%nonassoc WHILE DO
 
 %%
 

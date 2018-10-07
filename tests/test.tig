@@ -15,10 +15,14 @@ let
 		let
 			var y := a + b
 		in
+			for a := 0 to 12 - 2 do cat.age := a;
+			while cat.age < 100 do
+				(cat.age := cat.age * 2;
+				if cat.age = 97 then break);
 			y
 		end
 
 in
-	foo(2, cats[0].age)
+	foo(2, cats[0].age[0].bar.hello[1][2])
 
 end
