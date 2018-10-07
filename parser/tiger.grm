@@ -10,6 +10,7 @@
   | ARRAY | IF | THEN | ELSE | WHILE | FOR | TO | DO | LET | IN | END | OF 
   | BREAK | NIL
   | FUNCTION | VAR | TYPE 
+  | UMINUS
 
 %nonterm  exp | program
         | expseq | nonemptyexpseq
@@ -36,10 +37,14 @@
 %value INT (1)
 %value STRING ("")
 
+
 %nonassoc ID
 %nonassoc LBRACK OF
 
 %right ASSIGN
+
+%left OR
+%left AND
 
 %nonassoc EQ NEQ GT GE LT LE
 
@@ -50,23 +55,30 @@
 %nonassoc ELSE
 %nonassoc WHILE DO
 
+%left UMINUS
+
 %%
 
 program	: expseq		()
 
 	  (* Arithmetic *)
-exp : exp PLUS exp     %prec PLUS   ()
-    | exp MINUS exp    %prec MINUS  ()
-    | exp TIMES exp    %prec TIMES  ()
-    | exp DIVIDE exp   %prec DIVIDE ()
+exp : exp PLUS exp     ()
+    | exp MINUS exp    ()
+    | exp TIMES exp    ()
+    | exp DIVIDE exp   ()
+    | MINUS exp        %prec UMINUS ()
+
+    (* Logical *)
+    | exp AND exp   ()
+    | exp OR exp    ()
 
     (* Comparisons*)
-    | exp EQ exp    %prec EQ     ()
-    | exp NEQ exp   %prec NEQ    ()
-    | exp GT exp    %prec GT     ()
-    | exp GE exp    %prec GE     ()
-    | exp LT exp    %prec LT     ()
-    | exp LE exp    %prec LE     ()
+    | exp EQ exp    ()
+    | exp NEQ exp   ()
+    | exp GT exp    ()
+    | exp GE exp    ()
+    | exp LT exp    ()
+    | exp LE exp    ()
 
     (* Let *)
     | LET decseq IN expseq END  ()
@@ -75,7 +87,7 @@ exp : exp PLUS exp     %prec PLUS   ()
     | ID LPAREN arglist RPAREN  ()
     
     (* Assignment *)
-    | leftval ASSIGN exp  %prec ASSIGN ()
+    | leftval ASSIGN exp  ()
     
     (* Record Instantiation *)
     | ID LBRACE recordfieldseq RBRACE  ()
@@ -95,13 +107,13 @@ exp : exp PLUS exp     %prec PLUS   ()
     | LPAREN expseq RPAREN ()
 
     (* Accessible/Assignable Values *)
-    | leftval              ()
+    | leftval  ()
 
     (* Atomic Expressions *)
-    | INT                  ()
-    | STRING               ()
-    | NIL                  ()
-    | BREAK                ()
+    | INT      ()
+    | STRING   ()
+    | NIL      ()
+    | BREAK    ()
 
 
 (* Sequences of expression *)
