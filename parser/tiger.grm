@@ -12,14 +12,12 @@
   | FUNCTION | VAR | TYPE 
 
 %nonterm  exp | program
-        | arithexp | compexp | letexp | funcexp | assignexp | recordexp | arrayexp
         | expseq | nonemptyexpseq
         | vardec | fundec | typedec | decseq
         | ty | tyfield | tyfieldseq | nonemptytyfieldseq
         | arglist | nonemptyarglist
         | recordfield | recordfieldseq | nonemptyrecordfieldseq
         | leftval
-        | ifthenexp | whileexp | forexp | breakexp
 
 %pos int
 %verbose
@@ -56,23 +54,54 @@
 
 program	: expseq		()
 
-	
-exp : arithexp      ()
-    | compexp       () 
-    | letexp        ()
-    | funcexp       ()
-    | assignexp     ()
-    | recordexp     ()
-    | arrayexp      ()
-    | leftval       ()
-    | ifthenexp     ()
-    | whileexp      ()
-    | forexp        ()
-    | breakexp      ()
+	  (* Arithmetic *)
+exp : exp PLUS exp     %prec PLUS   ()
+    | exp MINUS exp    %prec MINUS  ()
+    | exp TIMES exp    %prec TIMES  ()
+    | exp DIVIDE exp   %prec DIVIDE ()
+
+    (* Comparisons*)
+    | exp EQ exp    %prec EQ     ()
+    | exp NEQ exp   %prec NEQ    ()
+    | exp GT exp    %prec GT     ()
+    | exp GE exp    %prec GE     ()
+    | exp LT exp    %prec LT     ()
+    | exp LE exp    %prec LE     ()
+
+    (* Let *)
+    | LET decseq IN expseq END  ()
+
+    (* Function Calls *)
+    | ID LPAREN arglist RPAREN  ()
+    
+    (* Assignment *)
+    | leftval ASSIGN exp  %prec ASSIGN ()
+    
+    (* Record Instantiation *)
+    | ID LBRACE recordfieldseq RBRACE  ()
+    
+    (* Array Instantiation *)
+    | ID LBRACK exp RBRACK OF exp ()
+    
+    (* Conditionals *)
+    | IF exp THEN exp           ()
+    | IF exp THEN exp ELSE exp  ()
+    
+    (* Loops *)
+    | WHILE exp DO exp                 ()
+    | FOR ID ASSIGN exp TO exp DO exp  ()
+
+    (* Grouping *)
     | LPAREN expseq RPAREN ()
-    | INT           ()
-    | STRING        ()
-    | NIL           ()
+
+    (* Accessible/Assignable Values *)
+    | leftval              ()
+
+    (* Atomic Expressions *)
+    | INT                  ()
+    | STRING               ()
+    | NIL                  ()
+    | BREAK                ()
 
 
 (* Sequences of expression *)
@@ -82,7 +111,6 @@ nonemptyexpseq : exp                          ()
 
 expseq : (* epsilon *)   ()
        | nonemptyexpseq  ()
-
 
 
 (* Type-field declarations *)
@@ -96,6 +124,7 @@ tyfieldseq : (* epsilon *)       ()
            | nonemptytyfieldseq  ()
 
 
+(* Declarations *)
 
 vardec : VAR ID ASSIGN exp           ()
        | VAR ID COLON ID ASSIGN exp  ()
@@ -109,14 +138,13 @@ ty : ID                        ()
    | LBRACE tyfieldseq RBRACE  ()
    | ARRAY OF ID               ()
 
-
 decseq : (* epsilon *)   ()
        | decseq vardec   ()
        | decseq fundec   ()
        | decseq typedec  ()
 
 
-
+(* Argument Lists *)
 
 nonemptyarglist : exp                        ()
                 | nonemptyarglist COMMA exp  ()
@@ -124,33 +152,16 @@ nonemptyarglist : exp                        ()
 arglist : (* epsilon *)     ()
         | nonemptyarglist   ()
 
-funcexp : ID LPAREN arglist RPAREN  ()
 
-
-arithexp : exp PLUS exp     %prec PLUS   ()
-         | exp MINUS exp    %prec MINUS  ()
-         | exp TIMES exp    %prec TIMES  ()
-         | exp DIVIDE exp   %prec DIVIDE () 
-
-
-compexp : exp EQ exp    %prec EQ     ()
-        | exp NEQ exp   %prec NEQ    ()
-        | exp GT exp    %prec GT     ()
-        | exp GE exp    %prec GE     ()
-        | exp LT exp    %prec LT     ()
-        | exp LE exp    %prec LE     ()
-
-
-letexp : LET decseq IN expseq END  ()
-
+(* Assignable/Accessible Values *)
 
 leftval : ID                         ()
         | leftval DOT ID             ()
         | leftval LBRACK exp RBRACK  ()
         | ID LBRACK exp RBRACK       ()
 
-assignexp : leftval ASSIGN exp  %prec ASSIGN ()
 
+(* Fields within Records *)
 
 recordfield : ID EQ exp  ()
 
@@ -159,16 +170,3 @@ recordfieldseq : (* epsilon *)           ()
 
 nonemptyrecordfieldseq : recordfield                               ()
                        | nonemptyrecordfieldseq COMMA recordfield  ()
-
-recordexp : ID LBRACE recordfieldseq RBRACE  ()
-
-arrayexp : ID LBRACK exp RBRACK OF exp ()
-
-ifthenexp : IF exp THEN exp           ()
-          | IF exp THEN exp ELSE exp  ()
-
-whileexp : WHILE exp DO exp  ()
-
-forexp : FOR ID ASSIGN exp TO exp DO exp  ()
-
-breakexp : BREAK  ()
