@@ -1,0 +1,24 @@
+let
+
+	type Cat = {name: string, age: int}
+
+
+	var bar := 3
+	var barstr : string := "3"
+
+	var cat : Cat := Cat{name="Thomas", age=2}
+
+	type intArray = array of int
+	var ints := intArray[3] of 1
+
+	function foo(a: int, b: int) =
+		let
+			var y := a + b
+		in
+			y
+		end
+
+in
+	foo(2, cats[0].age)
+
+end
