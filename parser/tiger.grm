@@ -1,5 +1,6 @@
 structure A = Absyn
 structure S = Symbol
+
 %%
 %term
     EOF 
@@ -26,8 +27,8 @@ structure S = Symbol
         | typedecseq of A.dec
         | nonemptytypedecseq of {name: S.symbol, ty: A.ty, pos: A.pos} list
         | decseq of A.dec list
-        | followfundecseq of A.dec list
-        | followtypedecseq of A.dec list
+        | beforefundecseq of A.dec list
+        | beforetypedecseq of A.dec list
         | ty of A.ty
         | tyfield of A.field
         | tyfieldseq of A.field list
@@ -57,6 +58,8 @@ structure S = Symbol
 %value STRING ("")
 
 
+(* Precedence Order *)
+
 %nonassoc ID
 %nonassoc LBRACK OF
 
@@ -71,8 +74,6 @@ structure S = Symbol
 
 %nonassoc EQ NEQ GT GE LT LE
 
-
-
 %left PLUS MINUS
 %left TIMES DIVIDE 
 
@@ -80,7 +81,7 @@ structure S = Symbol
 
 %%
 
-program	: expseq		(expseq)
+program	: exp		(exp)
 
 	  (* Arithmetic *)
 exp : exp PLUS exp     (A.OpExp{left=exp1, oper=A.PlusOp, right=exp2, pos=PLUSleft})
@@ -102,7 +103,7 @@ exp : exp PLUS exp     (A.OpExp{left=exp1, oper=A.PlusOp, right=exp2, pos=PLUSle
     | exp LE exp    (A.OpExp{left=exp1, oper=A.LeOp, right=exp2, pos=LEleft})
 
     (* Let *)
-    | LET decseq IN expseq END  (A.LetExp{decs=decseq, body=expseq, pos=LETleft})
+    | LET decseq IN expseq END  (A.LetExp{decs=(rev decseq), body=expseq, pos=LETleft})
 
     (* Function Calls *)
     | ID LPAREN arglist RPAREN  (A.CallExp{func=S.symbol(ID), args=arglist, pos=LPARENleft})
@@ -185,20 +186,26 @@ nonemptytypedecseq : typedec                     ([typedec])
 typedecseq : nonemptytypedecseq  (A.TypeDec(rev nonemptytypedecseq))
 
 
+(*
+  Consecutive type declarations and function declarations must be grouped into a
+  subsequence before becoming part of the overall declaration sequence. Therefore,
+  decseq is split into separate cases to handle things which can come before a
+  function declaration sequence and a type declaration sequence respectively while
+  avoiding ambiguity and shift/reduce conflicts.
+*)
+
 decseq : (* epsilon *)                ([])
-       | fundecseq followfundecseq    (fundecseq :: followfundecseq)
-       | typedecseq followtypedecseq  (typedecseq :: followtypedecseq)
-       | vardec decseq                (vardec :: decseq)
+       | beforefundecseq fundecseq    (fundecseq :: beforefundecseq)
+       | beforetypedecseq typedecseq  (typedecseq :: beforetypedecseq)
+       | decseq vardec                (vardec :: decseq)
 
+beforefundecseq : (* epsilon *)                ([])
+                | decseq vardec                (vardec :: decseq)
+                | beforetypedecseq typedecseq  (typedecseq :: beforetypedecseq)
 
-followfundecseq : (* epsilon *)                  ([])
-                | typedecseq followtypedecseq    (typedecseq :: followtypedecseq)
-                | vardec decseq                  (vardec :: decseq)
-
-followtypedecseq : (* epsilon *)                 ([])
-                 | fundecseq followfundecseq     (fundecseq :: followfundecseq)
-                 | vardec decseq                 (vardec :: decseq)
-
+beforetypedecseq : (* epsilon *)               ([])
+                 | decseq vardec               (vardec :: decseq)
+                 | beforefundecseq fundecseq   (fundecseq :: beforefundecseq)
 
 
 (* Argument Lists *)
