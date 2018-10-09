@@ -16,6 +16,15 @@ rule a higher precedence than the if-then rule via token precedence. This means
 that a string such as ```if a then if b then c else d``` will be unambiguously
 parsed as ```if a then (if b then c else d)```.
 
+### Differentiating Left Value and Array Instantiation
+
+Out initial implementation of left value and array expressions caused a 
+shift-reduce conflict. This was due to the fact that our left value declaration
+ambiguously overlapped with that of the array expression definition. To sidestep
+this conflict, we explicitly defined the left value case for `ID LBRACK exp RBRACK`
+instead of relying on the recursive definition.
+
+
 ### Declaration Sequences
 
 Our initial implementation also produced shift-reduce conflicts for the parsing
@@ -43,3 +52,4 @@ because they would have needed to append to the end of the list which is an
 O(n) operation on linked lists. Therefore, we decided to build the list in
 reverse and then reverse it a single time right before we construct the AST
 node that it is part of.
+
