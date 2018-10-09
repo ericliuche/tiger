@@ -26,7 +26,8 @@ structure S = Symbol
         | typedecseq of A.dec
         | nonemptytypedecseq of {name: S.symbol, ty: A.ty, pos: A.pos} list
         | decseq of A.dec list
-        | dec of A.dec
+        | followfundecseq of A.dec list
+        | followtypedecseq of A.dec list
         | ty of A.ty
         | tyfield of A.field
         | tyfieldseq of A.field list
@@ -169,6 +170,7 @@ ty : ID                        (A.NameTy(S.symbol(ID), IDleft))
    | ARRAY OF ID               (A.ArrayTy(S.symbol(ID), IDleft))
 
 
+(* Sequences of declarations *)
 
 nonemptyfundecseq : fundec                    ([fundec])
                   | nonemptyfundecseq fundec  (fundec :: nonemptyfundecseq)
@@ -180,16 +182,20 @@ nonemptytypedecseq : typedec                     ([typedec])
 
 typedecseq : nonemptytypedecseq  (A.TypeDec(rev nonemptytypedecseq))
 
-dec : vardec      (vardec)
-    | fundecseq   (fundecseq)
-    | typedecseq  (typedecseq)
 
-decseq : (* epsilon *)   ([])
-       | decseq dec      (decseq @ [dec])
-
+decseq : (* epsilon *)                ([])
+       | fundecseq followfundecseq    (fundecseq :: followfundecseq)
+       | typedecseq followtypedecseq  (typedecseq :: followtypedecseq)
+       | vardec decseq                (vardec :: decseq)
 
 
+followfundecseq : (* epsilon *)                  ([])
+                | typedecseq followtypedecseq    (typedecseq :: followtypedecseq)
+                | vardec decseq                  (vardec :: decseq)
 
+followtypedecseq : (* epsilon *)                 ([])
+                 | fundecseq followfundecseq     (fundecseq :: followfundecseq)
+                 | vardec decseq                 (vardec :: decseq)
 
 
 
