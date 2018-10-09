@@ -69,10 +69,10 @@ structure S = Symbol
 
 %right ASSIGN
 
+%nonassoc EQ NEQ GT GE LT LE
+
 %left OR
 %left AND
-
-%nonassoc EQ NEQ GT GE LT LE
 
 %left PLUS MINUS
 %left TIMES DIVIDE 
@@ -88,7 +88,9 @@ exp : exp PLUS exp     (A.OpExp{left=exp1, oper=A.PlusOp, right=exp2, pos=PLUSle
     | exp MINUS exp    (A.OpExp{left=exp1, oper=A.MinusOp, right=exp2, pos=MINUSleft})
     | exp TIMES exp    (A.OpExp{left=exp1, oper=A.TimesOp, right=exp2, pos=TIMESleft})
     | exp DIVIDE exp   (A.OpExp{left=exp1, oper=A.DivideOp, right=exp2, pos=DIVIDEleft})
-    | MINUS exp        %prec UMINUS (A.OpExp{left=A.IntExp(0), oper=A.MinusOp, right=exp, pos=MINUSleft})
+    | MINUS exp        %prec UMINUS (A.OpExp{left=A.IntExp(0),
+                                             oper=A.MinusOp,
+                                             right=exp, pos=MINUSleft})
 
     (* Logical *)
     | exp AND exp   (A.IfExp{test=exp1, then'=exp2, else'=SOME (A.IntExp(0)), pos=ANDleft})
@@ -106,13 +108,17 @@ exp : exp PLUS exp     (A.OpExp{left=exp1, oper=A.PlusOp, right=exp2, pos=PLUSle
     | LET decseq IN expseq END  (A.LetExp{decs=(rev decseq), body=expseq, pos=LETleft})
 
     (* Function Calls *)
-    | ID LPAREN arglist RPAREN  (A.CallExp{func=S.symbol(ID), args=arglist, pos=LPARENleft})
+    | ID LPAREN arglist RPAREN  (A.CallExp{func=S.symbol(ID),
+                                           args=arglist,
+                                           pos=LPARENleft})
     
     (* Assignment *)
     | leftval ASSIGN exp  (A.AssignExp{var=leftval, exp=exp, pos=ASSIGNleft})
     
     (* Record Instantiation *)
-    | ID LBRACE recordfieldseq RBRACE  (A.RecordExp{fields=recordfieldseq, typ=S.symbol(ID), pos=IDleft})
+    | ID LBRACE recordfieldseq RBRACE  (A.RecordExp{fields=recordfieldseq,
+                                                    typ=S.symbol(ID),
+                                                    pos=IDleft})
     
     (* Array Instantiation *)
     | ID LBRACK exp RBRACK OF exp (A.ArrayExp{typ=S.symbol(ID), size=exp1, init=exp2, pos=IDleft})
@@ -123,7 +129,12 @@ exp : exp PLUS exp     (A.OpExp{left=exp1, oper=A.PlusOp, right=exp2, pos=PLUSle
     
     (* Loops *)
     | WHILE exp DO exp                 (A.WhileExp{test=exp1, body=exp2, pos=WHILEleft})
-    | FOR ID ASSIGN exp TO exp DO exp  (A.ForExp{var=S.symbol(ID), escape=ref true, lo=exp1, hi=exp2, body=exp3, pos=FORleft})
+    | FOR ID ASSIGN exp TO exp DO exp  (A.ForExp{var=S.symbol(ID),
+                                                 escape=ref true,
+                                                 lo=exp1,
+                                                 hi=exp2,
+                                                 body=exp3,
+                                                 pos=FORleft})
 
     (* Grouping *)
     | LPAREN expseq RPAREN (expseq)
@@ -160,11 +171,28 @@ tyfieldseq : (* epsilon *)       ([])
 
 (* Declarations *)
 
-vardec : VAR ID ASSIGN exp           (A.VarDec{name=S.symbol(ID), escape=ref true, typ=NONE, init=exp, pos=VARleft})
-       | VAR ID COLON ID ASSIGN exp  (A.VarDec{name=S.symbol(ID1), escape=ref true, typ=SOME (S.symbol(ID2), ID2left), init=exp, pos=VARleft})
+vardec : VAR ID ASSIGN exp           (A.VarDec{name=S.symbol(ID),
+                                               escape=ref true,
+                                               typ=NONE,
+                                               init=exp,
+                                               pos=VARleft})
+       | VAR ID COLON ID ASSIGN exp  (A.VarDec{name=S.symbol(ID1),
+                                               escape=ref true,
+                                               typ=SOME (S.symbol(ID2),
+                                               ID2left),
+                                               init=exp,
+                                               pos=VARleft})
 
-fundec : FUNCTION ID LPAREN tyfieldseq RPAREN EQ exp          ({name=S.symbol(ID), params=tyfieldseq, result=NONE, body=exp, pos=FUNCTIONleft})
-       | FUNCTION ID LPAREN tyfieldseq RPAREN COLON ID EQ exp ({name=S.symbol(ID1), params=tyfieldseq, result=SOME (S.symbol(ID2), ID2left), body=exp, pos=FUNCTIONleft})
+fundec : FUNCTION ID LPAREN tyfieldseq RPAREN EQ exp          ({name=S.symbol(ID),
+                                                                params=tyfieldseq,
+                                                                result=NONE,
+                                                                body=exp,
+                                                                pos=FUNCTIONleft})
+       | FUNCTION ID LPAREN tyfieldseq RPAREN COLON ID EQ exp ({name=S.symbol(ID1),
+                                                                params=tyfieldseq,
+                                                                result=SOME (S.symbol(ID2), ID2left),
+                                                                body=exp,
+                                                                pos=FUNCTIONleft})
 
 typedec : TYPE ID EQ ty ({name=S.symbol(ID), ty=ty, pos=TYPEleft})
 
@@ -222,7 +250,9 @@ arglist : (* epsilon *)     ([])
 leftval : ID                         (A.SimpleVar(S.symbol(ID), IDleft))
         | leftval DOT ID             (A.FieldVar(leftval, S.symbol(ID), DOTleft))
         | leftval LBRACK exp RBRACK  (A.SubscriptVar(leftval, exp, LBRACKleft))
-        | ID LBRACK exp RBRACK       (A.SubscriptVar(A.SimpleVar(S.symbol(ID), IDleft), exp, LBRACKleft))
+        | ID LBRACK exp RBRACK       (A.SubscriptVar(A.SimpleVar(S.symbol(ID), IDleft),
+                                                     exp,
+                                                     LBRACKleft))
 
 
 (* Fields within Records *)
@@ -232,5 +262,6 @@ recordfield : ID EQ exp  ((S.symbol(ID), exp, IDleft))
 recordfieldseq : (* epsilon *)           ([])
                | nonemptyrecordfieldseq  (rev nonemptyrecordfieldseq)
 
-nonemptyrecordfieldseq : recordfield                               ([recordfield])
-                       | nonemptyrecordfieldseq COMMA recordfield  (recordfield :: nonemptyrecordfieldseq)
+nonemptyrecordfieldseq
+      : recordfield                               ([recordfield])
+      | nonemptyrecordfieldseq COMMA recordfield  (recordfield :: nonemptyrecordfieldseq)
