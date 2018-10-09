@@ -14,8 +14,8 @@ structure S = Symbol
   | FUNCTION | VAR | TYPE 
   | UMINUS
 
-%nonterm  exp of A.exp
-        | program of A.exp
+%nonterm  program of A.exp
+        | exp of A.exp
         | expseq of A.exp
         | nonemptyexpseq of (A.exp * A.pos) list
         | vardec of A.dec
@@ -26,6 +26,7 @@ structure S = Symbol
         | typedecseq of A.dec
         | nonemptytypedecseq of {name: S.symbol, ty: A.ty, pos: A.pos} list
         | decseq of A.dec list
+        | dec of A.dec
         | ty of A.ty
         | tyfield of A.field
         | tyfieldseq of A.field list
@@ -144,7 +145,7 @@ expseq : (* epsilon *)   (A.SeqExp([]))
 
 (* Type-field declarations *)
 
-tyfield : ID COLON ID (A.field{name=S.symbol(ID1), escape=ref true, typ=S.symbol(ID2), pos=COLONleft})
+tyfield : ID COLON ID ({name=S.symbol(ID1), escape=ref true, typ=S.symbol(ID2), pos=COLONleft})
 
 nonemptytyfieldseq : tyfield                          ([tyfield])
                    | nonemptytyfieldseq COMMA tyfield (tyfield :: nonemptytyfieldseq)
@@ -158,8 +159,8 @@ tyfieldseq : (* epsilon *)       ([])
 vardec : VAR ID ASSIGN exp           (A.VarDec{name=S.symbol(ID), escape=ref true, typ=NONE, init=exp, pos=VARleft})
        | VAR ID COLON ID ASSIGN exp  (A.VarDec{name=S.symbol(ID1), escape=ref true, typ=SOME (S.symbol(ID2), ID2left), init=exp, pos=VARleft})
 
-fundec : FUNCTION ID LPAREN tyfieldseq RPAREN EQ exp          (A.fundec{name=S.symbol(ID), params=tyfieldseq, result=NONE, body=exp, pos=FUNCTIONleft})
-       | FUNCTION ID LPAREN tyfieldseq RPAREN COLON ID EQ exp (A.fundec{name=S.symbol(ID1), params=tyfieldseq, result=SOME (S.symbol(ID2), ID2left), body=exp, pos=FUNCTIONleft})
+fundec : FUNCTION ID LPAREN tyfieldseq RPAREN EQ exp          ({name=S.symbol(ID), params=tyfieldseq, result=NONE, body=exp, pos=FUNCTIONleft})
+       | FUNCTION ID LPAREN tyfieldseq RPAREN COLON ID EQ exp ({name=S.symbol(ID1), params=tyfieldseq, result=SOME (S.symbol(ID2), ID2left), body=exp, pos=FUNCTIONleft})
 
 typedec : TYPE ID EQ ty ({name=S.symbol(ID), ty=ty, pos=TYPEleft})
 
@@ -172,19 +173,24 @@ ty : ID                        (A.NameTy(S.symbol(ID), IDleft))
 nonemptyfundecseq : fundec                    ([fundec])
                   | nonemptyfundecseq fundec  (fundec :: nonemptyfundecseq)
 
-fundecseq : (* epsilon *)      (A.FunctionDec([]))
-          | nonemptyfundecseq  (A.FunctionDec(rev nonemptyfundecseq))
+fundecseq : nonemptyfundecseq  (A.FunctionDec(rev nonemptyfundecseq))
 
 nonemptytypedecseq : typedec                     ([typedec])
                    | nonemptytypedecseq typedec  (typedec :: nonemptytypedecseq)
 
-typedecseq : (* epsilon *)       (A.TypeDec([]))
-           | nonemptytypedecseq  (A.TypeDec(rev nonemptytypedecseq))
+typedecseq : nonemptytypedecseq  (A.TypeDec(rev nonemptytypedecseq))
 
-decseq : (* epsilon *)      ([])
-       | decseq vardec      (decseq @ [vardec])
-       | decseq fundecseq   (decseq @ [fundecseq])
-       | decseq typedecseq  (decseq @ [typedecseq])
+dec : vardec      (vardec)
+    | fundecseq   (fundecseq)
+    | typedecseq  (typedecseq)
+
+decseq : (* epsilon *)   ([])
+       | decseq dec      (decseq @ [dec])
+
+
+
+
+
 
 
 (* Argument Lists *)

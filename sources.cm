@@ -8,7 +8,7 @@ parser/table.sml
 parser/absyn.sml
 parser/prabsyn.sml
 parser/tiger.grm
-parser/parsetest.sml
+parser/parse.sml
 $/ml-yacc-lib.cm
 $/smlnj-lib.cm
 $/basis.cm
