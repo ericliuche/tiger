@@ -60,6 +60,10 @@ structure S = Symbol
 %nonassoc ID
 %nonassoc LBRACK OF
 
+%nonassoc THEN
+%nonassoc ELSE
+%nonassoc WHILE DO
+
 %right ASSIGN
 
 %left OR
@@ -67,12 +71,10 @@ structure S = Symbol
 
 %nonassoc EQ NEQ GT GE LT LE
 
+
+
 %left PLUS MINUS
 %left TIMES DIVIDE 
-
-%nonassoc THEN
-%nonassoc ELSE
-%nonassoc WHILE DO
 
 %left UMINUS
 
