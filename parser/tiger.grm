@@ -19,8 +19,12 @@ structure S = Symbol
         | expseq of A.exp
         | nonemptyexpseq of (A.exp * A.pos) list
         | vardec of A.dec
-        | fundec of A.dec
-        | typedec of A.dec
+        | fundec of A.fundec
+        | typedec of {name: S.symbol, ty: A.ty, pos: A.pos}
+        | fundecseq of A.dec
+        | nonemptyfundecseq of A.fundec list
+        | typedecseq of A.dec
+        | nonemptytypedecseq of {name: S.symbol, ty: A.ty, pos: A.pos} list
         | decseq of A.dec list
         | ty of A.ty
         | tyfield of A.field
@@ -140,7 +144,7 @@ expseq : (* epsilon *)   (A.SeqExp([]))
 
 (* Type-field declarations *)
 
-tyfield : ID COLON ID (A.field(S.symbol(ID1), ref true, S.symbol(ID2), COLONleft))
+tyfield : ID COLON ID (A.field{name=S.symbol(ID1), escape=ref true, typ=S.symbol(ID2), pos=COLONleft})
 
 nonemptytyfieldseq : tyfield                          ([tyfield])
                    | nonemptytyfieldseq COMMA tyfield (tyfield :: nonemptytyfieldseq)
@@ -154,19 +158,33 @@ tyfieldseq : (* epsilon *)       ([])
 vardec : VAR ID ASSIGN exp           (A.VarDec{name=S.symbol(ID), escape=ref true, typ=NONE, init=exp, pos=VARleft})
        | VAR ID COLON ID ASSIGN exp  (A.VarDec{name=S.symbol(ID1), escape=ref true, typ=SOME (S.symbol(ID2), ID2left), init=exp, pos=VARleft})
 
-fundec : FUNCTION ID LPAREN tyfieldseq RPAREN EQ exp          (A.FunctionDec([]))
-       | FUNCTION ID LPAREN tyfieldseq RPAREN COLON ID EQ exp (A.FunctionDec([]))
+fundec : FUNCTION ID LPAREN tyfieldseq RPAREN EQ exp          (A.fundec{name=S.symbol(ID), params=tyfieldseq, result=NONE, body=exp, pos=FUNCTIONleft})
+       | FUNCTION ID LPAREN tyfieldseq RPAREN COLON ID EQ exp (A.fundec{name=S.symbol(ID1), params=tyfieldseq, result=SOME (S.symbol(ID2), ID2left), body=exp, pos=FUNCTIONleft})
 
-typedec : TYPE ID EQ ty ([A.TypeDec{name=S.symbol(ID), ty=ty, pos=TYPEleft}])
+typedec : TYPE ID EQ ty ({name=S.symbol(ID), ty=ty, pos=TYPEleft})
 
 ty : ID                        (A.NameTy(S.symbol(ID), IDleft))
    | LBRACE tyfieldseq RBRACE  (A.RecordTy(tyfieldseq))
    | ARRAY OF ID               (A.ArrayTy(S.symbol(ID), IDleft))
 
-decseq : (* epsilon *)   ([])
-       | decseq vardec   (decseq @ [vardec])
-       | decseq fundec   (decseq @ [fundec])
-       | decseq typedec  (decseq @ [typedec])
+
+
+nonemptyfundecseq : fundec                    ([fundec])
+                  | nonemptyfundecseq fundec  (fundec :: nonemptyfundecseq)
+
+fundecseq : (* epsilon *)      (A.FunctionDec([]))
+          | nonemptyfundecseq  (A.FunctionDec(rev nonemptyfundecseq))
+
+nonemptytypedecseq : typedec                     ([typedec])
+                   | nonemptytypedecseq typedec  (typedec :: nonemptytypedecseq)
+
+typedecseq : (* epsilon *)       (A.TypeDec([]))
+           | nonemptytypedecseq  (A.TypeDec(rev nonemptytypedecseq))
+
+decseq : (* epsilon *)      ([])
+       | decseq vardec      (decseq @ [vardec])
+       | decseq fundecseq   (decseq @ [fundecseq])
+       | decseq typedecseq  (decseq @ [typedecseq])
 
 
 (* Argument Lists *)
