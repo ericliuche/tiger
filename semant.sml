@@ -20,7 +20,7 @@ struct
         ", " ^ (T.typeToString(actualRight)) ^ ")")
 
   fun checkVarDecTypes(SOME({exp=_, ty=delcaredType}), {exp=_, ty=inferredType}, pos) = 
-    if delcaredType != inferredType then 
+    if delcaredType <> inferredType then 
       ErrorMsg.error pos ("Expected " ^ T.typeToString(delcaredType) ^ ", got " ^ T.typeToString(inferredType))
     else
       ()
@@ -43,16 +43,22 @@ struct
   fun transDec(venv, tenv, dec) = 
     case dec of 
        Absyn.VarDec{name, escape, typ, init, pos} =>
-        let 
+        let
+          val inferredResult = transExp(venv, tenv) init
+          val {exp=_, ty=inferredType} = inferredResult
           val declaredTyp = case typ of 
             SOME(typSym, typPos) => 
-              map 
-                (fn (ty) => {exp=(), ty=ty}) 
+              Option.map 
+                (fn (E.VarEntry{ty=ty}) => {exp=(), ty=ty}) 
                 (lookupSymbol(venv, typSym, typPos))
           | NONE => NONE
         in
-          (checkVarDecTypes(declaredTyp, transExp(venv, tenv) init, pos);
-          {venv=S.enter(venv, name, typ), tenv=tenv})
+          (checkVarDecTypes(declaredTyp, inferredResult, pos);
+          {venv=S.enter(venv, name, E.VarEntry{ty=
+            (case declaredTyp of
+              SOME({exp=_, ty=ty}) => ty
+            | NONE => inferredType)
+            }), tenv=tenv})
         end
 
   and transExp(venv, tenv) =
@@ -90,6 +96,20 @@ struct
           in 
             transExp(venv, tenv) body
           end
+
+      | trexp(A.VarExp(var)) =
+          (case var of
+            A.SimpleVar(sym, pos) =>
+              let
+                val venvEntry = lookupSymbol(venv, sym, pos)
+              in
+                (case venvEntry of
+                  SOME(E.VarEntry{ty=ty}) => {exp=(), ty=ty}
+                | _ => {exp=(), ty=T.UNIT})
+              end
+
+
+          | _ => {exp=(), ty=T.UNIT})
 
       | trexp(_) = {exp=(), ty=T.UNIT}
 
