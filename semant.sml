@@ -2,6 +2,7 @@ structure Semant: sig val transProg : Absyn.exp -> Types.ty end =
 struct
 
   structure A = Absyn
+  structure E = Env
   structure S = Symbol
   structure T = Types
 
@@ -18,7 +19,43 @@ struct
         ("Expected (int, int) or (string, string), got (" ^ (T.typeToString actualLeft) ^
         ", " ^ (T.typeToString(actualRight)) ^ ")")
 
-  fun transExp(venv, tenv) =
+  fun checkVarDecTypes(SOME({exp=_, ty=delcaredType}), {exp=_, ty=inferredType}, pos) = 
+    if delcaredType != inferredType then 
+      ErrorMsg.error pos ("Expected " ^ T.typeToString(delcaredType) ^ ", got " ^ T.typeToString(inferredType))
+    else
+      ()
+    | checkVarDecTypes(NONE, {exp=_, ty=inferredType}, pos) =
+      if inferredType = T.NIL then 
+        ErrorMsg.error pos ("Unable to infer type")
+      else
+        ()
+
+  fun lookupSymbol(table, symbol, pos) = 
+    let val symbolVal = S.look(table, symbol)
+    in
+      ((if not (isSome symbolVal) then 
+        ErrorMsg.error pos ("Undefined symbol " ^ S.name(symbol))
+      else
+        ());
+      symbolVal)
+    end
+
+  fun transDec(venv, tenv, dec) = 
+    case dec of 
+       Absyn.VarDec{name, escape, typ, init, pos} =>
+        let 
+          val declaredTyp = case typ of 
+            SOME(typSym, typPos) => 
+              map 
+                (fn (ty) => {exp=(), ty=ty}) 
+                (lookupSymbol(venv, typSym, typPos))
+          | NONE => NONE
+        in
+          (checkVarDecTypes(declaredTyp, transExp(venv, tenv) init, pos);
+          {venv=S.enter(venv, name, typ), tenv=tenv})
+        end
+
+  and transExp(venv, tenv) =
     let
       fun trexp(A.IntExp(intVal)) =
             {exp=(), ty=T.INT}
@@ -43,7 +80,17 @@ struct
           in
             if typeList = nil then {exp=(), ty=T.UNIT} else (List.last typeList)
           end
-      
+
+      | trexp(A.LetExp{decs, body, pos}) = 
+          let val {venv=venv, tenv=tenv} = 
+            foldl 
+              (fn (dec, {venv=curVenv, tenv=curTenv}) => transDec(curVenv, curTenv, dec))
+              ({venv=venv, tenv=tenv})
+              (decs)
+          in 
+            transExp(venv, tenv) body
+          end
+
       | trexp(_) = {exp=(), ty=T.UNIT}
 
       in trexp
@@ -51,7 +98,10 @@ struct
 
 
   fun transProg ast =
-    let val {exp=_, ty=topLevelType} = (transExp (nil, nil) ast)
+    let 
+      val venv = E.baseVenv
+      val tenv = E.baseTenv
+      val {exp=_, ty=topLevelType} = (transExp (venv, tenv) ast)
     in topLevelType
     end
 

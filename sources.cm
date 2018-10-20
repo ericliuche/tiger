@@ -9,6 +9,7 @@ parser/absyn.sml
 parser/prabsyn.sml
 parser/tiger.grm
 parser/parse.sml
+env.sml
 types.sml
 semant.sml
 $/ml-yacc-lib.cm
