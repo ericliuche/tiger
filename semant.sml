@@ -32,6 +32,34 @@ struct
       else
         ()
 
+  fun checkDeclaredType(SOME(declared), actual, pos) =
+    if declared <> actual then
+      (ErrorMsg.error pos ("Mismatch between declared and actual types - Expected " ^
+        T.typeToString(declared) ^ ", got " ^ T.typeToString(actual));
+      T.UNIT)
+    else
+      declared
+    | checkDeclaredType(NONE, actual, pos) =
+        actual
+
+  fun checkArgumentTypes(paramTypeList, argTypeList, pos) =
+    let
+      val numArgs = length(argTypeList)
+      val numParams = length(paramTypeList)
+
+      fun checkArgTypes(params, args) =
+        ListPair.all (fn (paramType, argType) => (paramType = argType)) (params, args)
+    in
+      if numParams <> numArgs then
+        ErrorMsg.error pos ("Expected " ^ Int.toString(numParams) ^ " arguments, got "
+          ^ Int.toString(numArgs))
+      else
+        if not (checkArgTypes(paramTypeList, argTypeList)) then
+          ErrorMsg.error pos "Unexpected argument types"
+      else
+        ()
+    end
+
   fun lookupSymbol(table, symbol, pos) = 
     let val symbolVal = S.look(table, symbol)
     in
@@ -59,7 +87,27 @@ struct
           ref ())
 
 
-  fun transDec(venv, tenv, dec) = 
+  fun transFuncDec(venv, tenv, {name, params, result, body, pos}) =
+    let
+      fun getParamTypes({name, escape, typ, pos}) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT))
+      val params' = map getParamTypes params
+      val formals = map (fn (name, ty) => ty) params'
+
+      fun addParamToBodyVenv((name, ty), curVenv) = S.enter(curVenv, name, E.VarEntry{ty=ty})
+      val bodyVenv = foldl addParamToBodyVenv venv params'
+
+      val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv) body
+
+      val returnType = checkDeclaredType(
+        Option.mapPartial (fn (symbol, pos) => lookupSymbol(tenv, symbol, pos)) (result),
+        bodyTy,
+        pos)
+    in
+      {venv=S.enter(venv, name, E.FunEntry{formals=formals, result=returnType}), tenv=tenv}
+    end
+
+
+  and transDec(venv, tenv, dec) = 
     case dec of 
        A.VarDec{name, escape, typ, init, pos} =>
         let
@@ -82,12 +130,17 @@ struct
         end
 
     | A.TypeDec(decList) =>
-        {venv=venv,
-         tenv=
-          foldl
-            (fn ({name, ty, pos}, curTenv) => S.enter(curTenv, name, transTy(curTenv, ty)))
-            (tenv)
-            (decList)}
+        {venv=venv, tenv= foldl
+          (fn ({name, ty, pos}, curTenv) => S.enter(curTenv, name, transTy(curTenv, ty)))
+          (tenv)
+          (decList)}
+
+    | A.FunctionDec(decList) =>
+        foldl
+          (fn (functionDec, {venv, tenv}) => transFuncDec(venv, tenv, functionDec))
+          ({venv=venv, tenv=tenv})
+          (decList)
+
 
 
   and transExp(venv, tenv) =
@@ -142,6 +195,21 @@ struct
               end
 
           | _ => {exp=(), ty=T.UNIT})
+
+      | trexp(A.CallExp{func, args, pos}) =
+          let
+            val funcEntry = Option.getOpt(lookupSymbol(venv, func, pos), E.VarEntry{ty=T.UNIT})
+            val {formals=paramTypes, result=resultType} =
+              case funcEntry of
+                E.FunEntry{formals, result} => {formals=formals, result=result}
+              | E.VarEntry{ty} => {formals=[], result=T.UNIT} 
+
+            val argExptys = map trexp args
+            val argTypes = map (fn ({exp, ty}) => ty) argExptys
+          in
+            (checkArgumentTypes(paramTypes, argTypes, pos);
+            {exp=(), ty=resultType})
+          end
 
       | trexp(_) = {exp=(), ty=T.UNIT}
 
