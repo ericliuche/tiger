@@ -60,6 +60,16 @@ struct
         actual
 
   (*
+    Produces an error if the two branches do not have compatible types
+  *)
+  fun checkIfThenElseTypes(consTy, antTy, pos) =
+    if consTy <> antTy then
+      ErrorMsg.error pos "Mismatch between if-then-else branch types"
+    else
+      ()
+
+
+  (*
     Produces an error if the function call is passed the wrong number or wrong type
     of parameters
   *)
@@ -144,8 +154,7 @@ struct
                       getFieldType(tail)
 
                 | getFieldType(nil) = (
-                  ErrorMsg.error pos ("Field " ^ S.name(sym) ^
-                    " does not exist");
+                  ErrorMsg.error pos ("Field " ^ S.name(sym) ^ " does not exist");
                   {exp=(), ty=T.UNIT})
             in
               getFieldType(fieldList)
@@ -301,6 +310,21 @@ struct
       | trexp(A.AssignExp{var, exp, pos}) =
           (checkAssignmentTypes(transVar(venv, tenv, var), trexp exp, pos);
           {exp=(), ty=T.UNIT})
+
+      | trexp(A.IfExp{test, then', else'=NONE, pos}) =
+          (checkInt(trexp test, pos);
+          trexp test;
+          {exp=(), ty=T.UNIT})
+
+      | trexp(A.IfExp{test, then', else'=SOME(antecedent), pos}) =
+          let
+            val {exp=_, ty=consTy} = trexp then'
+            val {exp=_, ty=antTy} = trexp antecedent
+          in
+            (checkIfThenElseTypes(consTy, antTy, pos);
+            trexp test;
+            {exp=(), ty=consTy})
+          end
 
       | trexp(_) = {exp=(), ty=T.UNIT}
 
