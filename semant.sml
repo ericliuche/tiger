@@ -6,14 +6,17 @@ struct
   structure S = Symbol
   structure T = Types
 
+  (* The result type of transforming and type-checking an expression *)
   type expty = {exp: unit, ty: T.ty}
 
 
+  (* Produces an error if the given expty is not an integer *)
   fun checkInt({exp, ty}, pos) =
     case ty of
       T.INT => ()
     | actual => ErrorMsg.error pos ("Expected int, got " ^ (T.typeToString actual))
 
+  (* Produces an error if the given exptys cannot be used in a comparison operator *)
   fun checkCompOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
     case (tyLeft, tyRight) of
       ((T.INT, T.INT) | (T.STRING, T.STRING)) => ()
@@ -21,27 +24,38 @@ struct
         ("Expected (int, int) or (string, string), got (" ^ (T.typeToString actualLeft) ^
         ", " ^ (T.typeToString(actualRight)) ^ ")")
 
+  (*
+    Produces an error if the variable type and the type of its initialization expression
+    are not legal
+  *)
   fun checkVarDecTypes(SOME({exp=_, ty=delcaredType}), {exp=_, ty=inferredType}, pos) = 
-    if delcaredType <> inferredType then 
-      ErrorMsg.error pos ("Expected " ^ T.typeToString(delcaredType) ^ ", got " ^ T.typeToString(inferredType))
-    else
-      ()
-    | checkVarDecTypes(NONE, {exp=_, ty=inferredType}, pos) =
-      if inferredType = T.NIL then 
-        ErrorMsg.error pos ("Unable to infer type")
-      else
-        ()
+        if delcaredType <> inferredType then 
+          ErrorMsg.error pos ("Expected " ^ T.typeToString(delcaredType) ^ ", got " ^ T.typeToString(inferredType))
+        else
+          ()
 
+    | checkVarDecTypes(NONE, {exp=_, ty=inferredType}, pos) =
+        if inferredType = T.NIL then ErrorMsg.error pos ("Unable to infer type") else ()
+
+  (*
+    Produces an error if the declared and actual types disagree and returns the declared type
+    if it is present or the actual type otherwise
+  *)
   fun checkDeclaredType(SOME(declared), actual, pos) =
-    if declared <> actual then
-      (ErrorMsg.error pos ("Mismatch between declared and actual types - Expected " ^
-        T.typeToString(declared) ^ ", got " ^ T.typeToString(actual));
-      T.UNIT)
-    else
-      declared
+        if declared <> actual then
+          (ErrorMsg.error pos ("Mismatch between declared and actual types - Expected " ^
+            T.typeToString(declared) ^ ", got " ^ T.typeToString(actual));
+          T.UNIT)
+        else
+          declared
+
     | checkDeclaredType(NONE, actual, pos) =
         actual
 
+  (*
+    Produces an error if the function call is passed the wrong number or wrong type
+    of parameters
+  *)
   fun checkArgumentTypes(paramTypeList, argTypeList, pos) =
     let
       val numArgs = length(argTypeList)
@@ -60,6 +74,10 @@ struct
         ()
     end
 
+  (*
+    Produces an error if the given symbol is not in the given table and returns an
+    option of the table value
+  *)
   fun lookupSymbol(table, symbol, pos) = 
     let val symbolVal = S.look(table, symbol)
     in
@@ -70,6 +88,9 @@ struct
       symbolVal)
     end
 
+  (*
+    Transforms and type-checks an Absyn.Ty in the given type environment
+  *)
   fun transTy(tenv, absynTy) =
     case absynTy of
       A.NameTy(sym, pos) =>
@@ -87,6 +108,9 @@ struct
           ref ())
 
 
+  (*
+    Transforms and type-checks a function declaration in the given environments
+  *)
   fun transFuncDec(venv, tenv, {name, params, result, body, pos}) =
     let
       fun getParamTypes({name, escape, typ, pos}) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT))
@@ -106,27 +130,28 @@ struct
       {venv=S.enter(venv, name, E.FunEntry{formals=formals, result=returnType}), tenv=tenv}
     end
 
-
+  (*
+    Transforms and type-checks a declaration in the given environments
+  *)
   and transDec(venv, tenv, dec) = 
     case dec of 
        A.VarDec{name, escape, typ, init, pos} =>
         let
-          val inferredExpty = transExp(venv, tenv) init
-          val {exp=_, ty=inferredTy} = inferredExpty
-          val declaredExptyOpt = case typ of 
-            SOME(typSym, typPos) => 
-              (Option.map 
-                (fn (ty) => {exp=(), ty=ty}) 
-                (lookupSymbol(tenv, typSym, typPos)))
-          | NONE => NONE
+          val {exp=_, ty=inferredTy} = transExp(venv, tenv) init
+
+          val declaredTyOpt =
+            Option.mapPartial
+              (fn (typSym, typPos) => lookupSymbol(tenv, typSym, typPos))
+              (typ)
+
+          val variableType = checkDeclaredType(declaredTyOpt, inferredTy, pos)
+
         in
-          (checkVarDecTypes(declaredExptyOpt, inferredExpty, pos);
-          {venv=S.enter(venv, name, E.VarEntry{
-            ty= (case declaredExptyOpt of
-                  SOME({exp=_, ty=ty}) => ty
-                | NONE => inferredTy)
-            }),
-          tenv=tenv})
+          (case (declaredTyOpt, inferredTy) of
+            (NONE, T.NIL) => ErrorMsg.error pos "Unknown type of nil variable"
+          |  _ => ();
+
+          {venv=S.enter(venv, name, E.VarEntry{ty=variableType}), tenv=tenv})
         end
 
     | A.TypeDec(decList) =>
@@ -142,7 +167,10 @@ struct
           (decList)
 
 
-
+  (*
+    Produces a transformation function which type-checks an expression with the given
+    environments
+  *)
   and transExp(venv, tenv) =
     let
       fun trexp(A.IntExp(intVal)) =
@@ -217,6 +245,7 @@ struct
     end
 
 
+  (* Translates and type-checks an abstract syntax tree *)
   fun transProg ast =
     let 
       val venv = E.baseVenv
