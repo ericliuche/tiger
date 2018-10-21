@@ -24,6 +24,13 @@ struct
         ("Expected (int, int) or (string, string), got (" ^ (T.typeToString actualLeft) ^
         ", " ^ (T.typeToString(actualRight)) ^ ")")
 
+  (* Produces an error if the given expression cannot be assigned to the given variable *)
+  fun checkAssignmentTypes({exp=_, ty=varTy}, {exp=_, ty=expTy}, pos) =
+    if varTy <> expTy then
+      ErrorMsg.error pos ("Invalid assignment to type " ^ T.typeToString(varTy))
+    else
+      ()
+
   (*
     Produces an error if the variable type and the type of its initialization expression
     are not legal
@@ -89,6 +96,15 @@ struct
     end
 
   (*
+    Traverses the name alias chain and returns the underlying type definition for
+    the given type
+  *)
+  fun actualType(tenv, ty) =
+    case ty of
+      T.NAME(sym, tyRef) => actualType(tenv, Option.getOpt(!tyRef, T.UNIT))
+    | _ => ty  
+
+  (*
     Transforms and type-checks an Absyn.Ty in the given type environment
   *)
   fun transTy(tenv, absynTy) =
@@ -97,7 +113,7 @@ struct
         Option.getOpt(lookupSymbol(tenv, sym, pos), T.UNIT)
 
     | A.ArrayTy(sym, pos) =>
-        T.ARRAY(Option.getOpt(lookupSymbol(tenv, sym, pos), T.UNIT), ref ())
+        T.ARRAY(actualType(tenv, Option.getOpt(lookupSymbol(tenv, sym, pos), T.UNIT)), ref ())
 
     | A.RecordTy(fieldList) =>
         T.RECORD(
@@ -107,11 +123,51 @@ struct
             (fieldList),
           ref ())
 
+  (*
+    Transforms and type-checks a variable
+  *)
+  fun transVar(venv, tenv, var) : expty =
+    case var of
+      A.SimpleVar(sym, pos) =>
+        (case lookupSymbol(venv, sym, pos) of
+          SOME(E.VarEntry{ty}) => {exp=(), ty=actualType(tenv, ty)}
+        | _ => {exp=(), ty=T.UNIT})
+
+    | A.FieldVar(var, sym, pos) =>
+        (case transVar(venv, tenv, var) of
+          {exp=_, ty=T.RECORD(fieldList, unique)} =>
+            let
+              fun getFieldType((fieldName, fieldType) :: tail) =
+                    if fieldName = sym then
+                      {exp=(), ty=actualType(tenv, fieldType)}
+                    else
+                      getFieldType(tail)
+
+                | getFieldType(nil) = (
+                  ErrorMsg.error pos ("Field " ^ S.name(sym) ^
+                    " does not exist");
+                  {exp=(), ty=T.UNIT})
+            in
+              getFieldType(fieldList)
+            end
+
+        | _ => (
+          ErrorMsg.error pos (S.name(sym) ^ " is not a record type");
+          {exp=(), ty=T.UNIT}))
+
+    | A.SubscriptVar(var, exp, pos) =>
+        (checkInt(transExp(venv, tenv) exp, pos);
+        case transVar(venv, tenv, var) of
+          {exp=_, ty=T.ARRAY(ty, unique)} => {exp=(), ty=actualType(tenv, ty)}
+        | _ => (
+          ErrorMsg.error pos "Cannot subscript a non-array type";
+          {exp=(), ty=T.UNIT}))
+
 
   (*
     Transforms and type-checks a function declaration in the given environments
   *)
-  fun transFuncDec(venv, tenv, {name, params, result, body, pos}) =
+  and transFuncDec(venv, tenv, {name, params, result, body, pos}) =
     let
       fun getParamTypes({name, escape, typ, pos}) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT))
       val params' = map getParamTypes params
@@ -150,7 +206,6 @@ struct
           (case (declaredTyOpt, inferredTy) of
             (NONE, T.NIL) => ErrorMsg.error pos "Unknown type of nil variable"
           |  _ => ();
-
           {venv=S.enter(venv, name, E.VarEntry{ty=variableType}), tenv=tenv})
         end
 
@@ -171,9 +226,9 @@ struct
     Produces a transformation function which type-checks an expression with the given
     environments
   *)
-  and transExp(venv, tenv) =
+  and transExp(venv, tenv) : A.exp -> expty =
     let
-      fun trexp(A.IntExp(intVal)) =
+      fun trexp(A.IntExp(intVal)) : expty =
             {exp=(), ty=T.INT}
         
       | trexp(A.StringExp(stringVal, pos)) =
@@ -181,6 +236,20 @@ struct
 
       | trexp(A.NilExp) =
           {exp=(), ty=T.NIL}
+
+      | trexp(A.ArrayExp{typ, size, init, pos}) =
+          let
+            val declaredType = lookupSymbol(tenv, typ, pos)
+            val arraySubtype = case declaredType of
+              SOME(T.ARRAY(ty, unique)) => SOME(ty)
+            | nonarray => nonarray
+
+            val {exp=_, ty=initType} = trexp init
+          in
+            (checkInt(trexp size, pos);
+             checkDeclaredType(arraySubtype, initType, pos); 
+            {exp=(), ty=Option.getOpt(declaredType, T.UNIT)})
+          end
         
       | trexp(A.OpExp{left, oper, right, pos}) =
           (case oper of
@@ -212,17 +281,7 @@ struct
           end
 
       | trexp(A.VarExp(var)) =
-          (case var of
-            A.SimpleVar(sym, pos) =>
-              let
-                val venvEntry = lookupSymbol(venv, sym, pos)
-              in
-                (case venvEntry of
-                  SOME(E.VarEntry{ty=ty}) => {exp=(), ty=ty}
-                | _ => {exp=(), ty=T.UNIT})
-              end
-
-          | _ => {exp=(), ty=T.UNIT})
+          transVar(venv, tenv, var)
 
       | trexp(A.CallExp{func, args, pos}) =
           let
@@ -238,6 +297,10 @@ struct
             (checkArgumentTypes(paramTypes, argTypes, pos);
             {exp=(), ty=resultType})
           end
+
+      | trexp(A.AssignExp{var, exp, pos}) =
+          (checkAssignmentTypes(transVar(venv, tenv, var), trexp exp, pos);
+          {exp=(), ty=T.UNIT})
 
       | trexp(_) = {exp=(), ty=T.UNIT}
 
