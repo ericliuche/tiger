@@ -6,6 +6,8 @@ struct
   structure S = Symbol
   structure T = Types
 
+  type expty = {exp: unit, ty: T.ty}
+
 
   fun checkInt({exp, ty}, pos) =
     case ty of
@@ -40,26 +42,53 @@ struct
       symbolVal)
     end
 
+  fun transTy(tenv, absynTy) =
+    case absynTy of
+      A.NameTy(sym, pos) =>
+        Option.getOpt(lookupSymbol(tenv, sym, pos), T.UNIT)
+
+    | A.ArrayTy(sym, pos) =>
+        T.ARRAY(Option.getOpt(lookupSymbol(tenv, sym, pos), T.UNIT), ref ())
+
+    | A.RecordTy(fieldList) =>
+        T.RECORD(
+          map
+            (fn ({name, escape, typ, pos}) =>
+              (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT)))
+            (fieldList),
+          ref ())
+
+
   fun transDec(venv, tenv, dec) = 
     case dec of 
-       Absyn.VarDec{name, escape, typ, init, pos} =>
+       A.VarDec{name, escape, typ, init, pos} =>
         let
-          val inferredResult = transExp(venv, tenv) init
-          val {exp=_, ty=inferredType} = inferredResult
-          val declaredTyp = case typ of 
+          val inferredExpty = transExp(venv, tenv) init
+          val {exp=_, ty=inferredTy} = inferredExpty
+          val declaredExptyOpt = case typ of 
             SOME(typSym, typPos) => 
-              Option.map 
-                (fn (E.VarEntry{ty=ty}) => {exp=(), ty=ty}) 
-                (lookupSymbol(venv, typSym, typPos))
+              (Option.map 
+                (fn (ty) => {exp=(), ty=ty}) 
+                (lookupSymbol(tenv, typSym, typPos)))
           | NONE => NONE
         in
-          (checkVarDecTypes(declaredTyp, inferredResult, pos);
-          {venv=S.enter(venv, name, E.VarEntry{ty=
-            (case declaredTyp of
-              SOME({exp=_, ty=ty}) => ty
-            | NONE => inferredType)
-            }), tenv=tenv})
+          (checkVarDecTypes(declaredExptyOpt, inferredExpty, pos);
+          {venv=S.enter(venv, name, E.VarEntry{
+            ty= (case declaredExptyOpt of
+                  SOME({exp=_, ty=ty}) => ty
+                | NONE => inferredTy)
+            }),
+          tenv=tenv})
         end
+
+    | A.TypeDec(decList) =>
+        {venv=venv,
+         tenv=
+          foldl
+            (fn ({name, ty, pos}, curTenv) => S.enter(curTenv, name, transTy(curTenv, ty)))
+            (tenv)
+            (decList)}
+
 
   and transExp(venv, tenv) =
     let
@@ -68,6 +97,9 @@ struct
         
       | trexp(A.StringExp(stringVal, pos)) =
           {exp=(), ty=T.STRING}
+
+      | trexp(A.NilExp) =
+          {exp=(), ty=T.NIL}
         
       | trexp(A.OpExp{left, oper, right, pos}) =
           (case oper of
@@ -86,6 +118,7 @@ struct
           in
             if typeList = nil then {exp=(), ty=T.UNIT} else (List.last typeList)
           end
+
 
       | trexp(A.LetExp{decs, body, pos}) = 
           let val {venv=venv, tenv=tenv} = 
@@ -107,7 +140,6 @@ struct
                   SOME(E.VarEntry{ty=ty}) => {exp=(), ty=ty}
                 | _ => {exp=(), ty=T.UNIT})
               end
-
 
           | _ => {exp=(), ty=T.UNIT})
 

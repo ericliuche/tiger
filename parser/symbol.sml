@@ -7,6 +7,7 @@ sig
   val empty : 'a table
   val enter : 'a table * symbol * 'a -> 'a table
   val look  : 'a table * symbol -> 'a option
+  val initTable : (symbol * 'a) list -> 'a table
 end
 
 structure Symbol :> SYMBOL =
@@ -40,4 +41,11 @@ struct
   val empty = Table.empty
   val enter = Table.enter
   val look = Table.look
+
+  (* Initializes a symbol table from the given list of (symbol, value) tuples *)
+  val initTable = fn (entryList) =>
+    foldl
+      (fn ((key, value), table) => enter(table, key, value))
+      (empty)
+      (entryList) 
 end
