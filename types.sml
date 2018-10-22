@@ -7,6 +7,7 @@ struct
             RECORD of (Symbol.symbol * ty) list * unique
           | NIL
           | INT
+          | BREAK
           | STRING
           | ARRAY of ty * unique
     | NAME of Symbol.symbol * ty option ref

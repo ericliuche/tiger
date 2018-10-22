@@ -9,12 +9,32 @@ struct
   (* The result type of transforming and type-checking an expression *)
   type expty = {exp: unit, ty: T.ty}
 
+  val loopCount = ref [ref 0]
+                                                       
+  fun enterLoop() = 
+    hd(!loopCount) := 1 + !(hd(!loopCount))
+
+  fun exitLoop() = 
+    hd(!loopCount) := !(hd(!loopCount)) - 1
+
+  fun pushLoopScope() = 
+    loopCount := ref 0 :: (!loopCount)
+
+  fun popLoopScope() = 
+    loopCount := tl(!loopCount) 
+
 
   (* Produces an error if the given expty is not an integer *)
-  fun checkInt({exp, ty}, pos) =
+  fun checkInt(message, {exp, ty}, pos) =
     case ty of
       T.INT => ()
-    | actual => ErrorMsg.error pos ("Expected int, got " ^ (T.typeToString actual))
+    | actual => ErrorMsg.error pos (message ^ "Expected int, got " ^ (T.typeToString actual))
+
+  (* Produces an error if the given expty is not unit type *)
+  fun checkUnit(message, {exp, ty}, pos) =
+    case ty of
+      T.UNIT => ()
+    | actual => ErrorMsg.error pos (message ^ "Expected unit, got " ^ (T.typeToString actual))
 
   (* Produces an error if the given exptys cannot be used in a comparison operator *)
   fun checkCompOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
@@ -68,6 +88,14 @@ struct
     else
       ()
 
+  (*
+    Produces an error if test is not an int and body is not unit
+  *)
+  fun checkWhileTypes(consTy, antTy, pos) =
+    if consTy <> antTy then
+      ErrorMsg.error pos "Mismatch between if-then-else branch types"
+    else
+      ()
 
   (*
     Produces an error if the function call is passed the wrong number or wrong type
@@ -112,7 +140,21 @@ struct
   fun actualType(tenv, ty) =
     case ty of
       T.NAME(sym, tyRef) => actualType(tenv, Option.getOpt(!tyRef, T.UNIT))
-    | _ => ty  
+    | _ => ty
+
+  (* 
+    Produces an error is var is not writable 
+  *)
+  fun checkWritable(venv, A.SimpleVar(symbol, pos)) = 
+    (case lookupSymbol(venv, symbol, pos) of
+      SOME(E.VarEntry{ty, readOnly}) => 
+        if readOnly then
+          ErrorMsg.error pos ("Unable to assign to read only variable " ^ S.name(symbol))
+        else
+        ()
+     | _ => ())
+    | checkWritable(venv, _) = ()
+
 
   (*
     Transforms and type-checks an Absyn.Ty in the given type environment
@@ -140,7 +182,7 @@ struct
     case var of
       A.SimpleVar(sym, pos) =>
         (case lookupSymbol(venv, sym, pos) of
-          SOME(E.VarEntry{ty}) => {exp=(), ty=actualType(tenv, ty)}
+          SOME(E.VarEntry{ty, readOnly}) => {exp=(), ty=actualType(tenv, ty)}
         | _ => {exp=(), ty=T.UNIT})
 
     | A.FieldVar(var, sym, pos) =>
@@ -165,7 +207,7 @@ struct
           {exp=(), ty=T.UNIT}))
 
     | A.SubscriptVar(var, exp, pos) =>
-        (checkInt(transExp(venv, tenv) exp, pos);
+        (checkInt("Array index: ", transExp(venv, tenv) exp, pos);
         case transVar(venv, tenv, var) of
           {exp=_, ty=T.ARRAY(ty, unique)} => {exp=(), ty=actualType(tenv, ty)}
         | _ => (
@@ -182,7 +224,7 @@ struct
       val params' = map getParamTypes params
       val formals = map (fn (name, ty) => ty) params'
 
-      fun addParamToBodyVenv((name, ty), curVenv) = S.enter(curVenv, name, E.VarEntry{ty=ty})
+      fun addParamToBodyVenv((name, ty), curVenv) = S.enter(curVenv, name, E.VarEntry{ty=ty, readOnly=false})
       val bodyVenv = foldl addParamToBodyVenv venv params'
 
       val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv) body
@@ -215,7 +257,7 @@ struct
           (case (declaredTyOpt, inferredTy) of
             (NONE, T.NIL) => ErrorMsg.error pos "Unknown type of nil variable"
           |  _ => ();
-          {venv=S.enter(venv, name, E.VarEntry{ty=variableType}), tenv=tenv})
+          {venv=S.enter(venv, name, E.VarEntry{ty=variableType, readOnly=false}), tenv=tenv})
         end
 
     | A.TypeDec(decList) =>
@@ -255,7 +297,7 @@ struct
 
             val {exp=_, ty=initType} = trexp init
           in
-            (checkInt(trexp size, pos);
+            (checkInt("Array size: ", trexp size, pos);
              checkDeclaredType(arraySubtype, initType, pos); 
             {exp=(), ty=Option.getOpt(declaredType, T.UNIT)})
           end
@@ -263,21 +305,20 @@ struct
       | trexp(A.OpExp{left, oper, right, pos}) =
           (case oper of
             (A.PlusOp | A.MinusOp | A.TimesOp | A.DivideOp) =>
-              (checkInt(trexp left, pos);
-               checkInt(trexp right, pos);
+              (checkInt("", trexp left, pos);
+               checkInt("", trexp right, pos);
                {exp=(), ty=T.INT})
           | (A.LtOp | A.LeOp | A.GtOp | A.GeOp) =>
               (checkCompOpTypes((trexp left), (trexp right), pos);
-              {exp=(), ty=T.INT}))
-
+              {exp=(), ty=T.INT})
           (* TODO: equal and not equal operators *)
-      
+          | _ => {exp=(), ty=T.UNIT})
+
       | trexp(A.SeqExp(expPosList)) =
           let val typeList = map (fn (exp, _) => trexp exp) expPosList
           in
             if typeList = nil then {exp=(), ty=T.UNIT} else (List.last typeList)
           end
-
 
       | trexp(A.LetExp{decs, body, pos}) = 
           let val {venv=venv, tenv=tenv} = 
@@ -294,11 +335,11 @@ struct
 
       | trexp(A.CallExp{func, args, pos}) =
           let
-            val funcEntry = Option.getOpt(lookupSymbol(venv, func, pos), E.VarEntry{ty=T.UNIT})
+            val funcEntry = Option.getOpt(lookupSymbol(venv, func, pos), E.VarEntry{ty=T.UNIT, readOnly=false})
             val {formals=paramTypes, result=resultType} =
               case funcEntry of
                 E.FunEntry{formals, result} => {formals=formals, result=result}
-              | E.VarEntry{ty} => {formals=[], result=T.UNIT} 
+              | E.VarEntry{ty, readOnly} => {formals=[], result=T.UNIT} 
 
             val argExptys = map trexp args
             val argTypes = map (fn ({exp, ty}) => ty) argExptys
@@ -308,12 +349,12 @@ struct
           end
 
       | trexp(A.AssignExp{var, exp, pos}) =
-          (checkAssignmentTypes(transVar(venv, tenv, var), trexp exp, pos);
+          (checkWritable(venv, var);
+           checkAssignmentTypes(transVar(venv, tenv, var), trexp exp, pos);
           {exp=(), ty=T.UNIT})
 
       | trexp(A.IfExp{test, then', else'=NONE, pos}) =
-          (checkInt(trexp test, pos);
-          trexp test;
+          (checkInt("If test expression: ", trexp test, pos);
           {exp=(), ty=T.UNIT})
 
       | trexp(A.IfExp{test, then', else'=SOME(antecedent), pos}) =
@@ -321,10 +362,37 @@ struct
             val {exp=_, ty=consTy} = trexp then'
             val {exp=_, ty=antTy} = trexp antecedent
           in
-            (checkIfThenElseTypes(consTy, antTy, pos);
-            trexp test;
+            (checkInt("If test expression: ", trexp test, pos);
+             checkIfThenElseTypes(consTy, antTy, pos);
             {exp=(), ty=consTy})
           end
+
+      | trexp(A.ForExp{var, escape, lo, hi, body, pos}) = 
+          let 
+            val venv' = S.enter(venv, var, E.VarEntry{ty=T.INT, readOnly=true})
+          in 
+            (checkInt("For lo expression: ", trexp lo, pos);
+             checkInt("For hi expression: ", trexp hi, pos);
+             enterLoop();
+             checkUnit("For body expression: ", transExp(venv', tenv) body, pos);
+             exitLoop();
+            {exp=(), ty=T.UNIT})
+          end
+
+      | trexp(A.WhileExp{test, body, pos}) = 
+          (checkInt("While test expression: ", trexp test, pos);
+           enterLoop();
+           checkUnit("While body expression: ", trexp body, pos);
+           exitLoop();
+          {exp=(), ty=T.UNIT})
+
+      | trexp(A.BreakExp(pos)) = 
+          (if !(hd(!loopCount)) > 0 then 
+            ()
+           else 
+            ErrorMsg.error pos "Illegal break, must be within a for or while loop";
+            (* TODO how to handle break type*)
+           {exp=(), ty=T.BREAK})
 
       | trexp(_) = {exp=(), ty=T.UNIT}
 
