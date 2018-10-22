@@ -48,9 +48,16 @@ struct
         ("Expected (int, int) or (string, string), got (" ^ (T.typeToString actualLeft) ^
         ", " ^ (T.typeToString(actualRight)) ^ ")")
 
+  fun checkEqualOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
+    case (T.isSubtype(tyLeft, tyRight), T.isSubtype(tyRight, tyLeft)) of
+      (false, false) =>
+        ErrorMsg.error pos ("Cannot compare equality for types " ^
+          T.typeToString(tyLeft) ^ " and " ^ T.typeToString(tyRight))
+    | _ => ()
+
   (* Produces an error if the given expression cannot be assigned to the given variable *)
   fun checkAssignmentTypes({exp=_, ty=varTy}, {exp=_, ty=expTy}, pos) =
-    if varTy <> expTy then
+    if not (T.isSubtype(expTy, varTy)) then
       ErrorMsg.error pos ("Invalid assignment to type " ^ T.typeToString(varTy))
     else
       ()
@@ -59,9 +66,9 @@ struct
     Produces an error if the variable type and the type of its initialization expression
     are not legal
   *)
-  fun checkVarDecTypes(SOME({exp=_, ty=delcaredType}), {exp=_, ty=inferredType}, pos) = 
-        if delcaredType <> inferredType then 
-          ErrorMsg.error pos ("Expected " ^ T.typeToString(delcaredType) ^ ", got " ^ T.typeToString(inferredType))
+  fun checkVarDecTypes(SOME({exp=_, ty=declaredType}), {exp=_, ty=inferredType}, pos) = 
+        if not(T.isSubtype(inferredType, declaredType)) then 
+          ErrorMsg.error pos ("Expected " ^ T.typeToString(declaredType) ^ ", got " ^ T.typeToString(inferredType))
         else
           ()
 
@@ -73,7 +80,7 @@ struct
     if it is present or the actual type otherwise
   *)
   fun checkDeclaredType(SOME(declared), actual, pos) =
-        if declared <> actual then
+        if not(T.isSubtype(actual, declared)) then
           (ErrorMsg.error pos ("Mismatch between declared and actual types - Expected " ^
             T.typeToString(declared) ^ ", got " ^ T.typeToString(actual));
           T.UNIT)
@@ -87,16 +94,7 @@ struct
     Produces an error if the two branches do not have compatible types
   *)
   fun checkIfThenElseTypes(consTy, antTy, pos) =
-    if consTy <> antTy then
-      ErrorMsg.error pos "Mismatch between if-then-else branch types"
-    else
-      ()
-
-  (*
-    Produces an error if test is not an int and body is not unit
-  *)
-  fun checkWhileTypes(consTy, antTy, pos) =
-    if consTy <> antTy then
+    if not(T.isSubtype(consTy, antTy)) andalso not(T.isSubtype(antTy, consTy)) then
       ErrorMsg.error pos "Mismatch between if-then-else branch types"
     else
       ()
@@ -106,7 +104,7 @@ struct
     of actual types. 
   *)
   fun checkTypeList(expectedList, actualList) =
-    ListPair.allEq (fn (expected, actual) => (expected = actual)) (expectedList, actualList)
+    ListPair.allEq (fn (expected, actual) => (T.isSubtype(actual, expected))) (expectedList, actualList)
 
   (*
     Produces an error if the function call is passed the wrong number or wrong type
@@ -355,8 +353,10 @@ struct
           | (A.LtOp | A.LeOp | A.GtOp | A.GeOp) =>
               (checkCompOpTypes((trexp left), (trexp right), pos);
               {exp=(), ty=T.INT})
-          (* TODO: equal and not equal operators *)
-          | _ => {exp=(), ty=T.UNIT})
+
+          | (A.EqOp | A.NeqOp) =>
+              (checkEqualOpTypes((trexp left), (trexp right), pos);
+               {exp=(), ty=T.INT}))
 
       | trexp(A.SeqExp(expPosList)) =
           let val typeList = map (fn (exp, _) => trexp exp) expPosList
