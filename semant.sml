@@ -102,6 +102,13 @@ struct
       ()
 
   (*
+    Produces an error if the given list of types is not compatible with the given list
+    of actual types. 
+  *)
+  fun checkTypeList(expectedList, actualList) =
+    ListPair.allEq (fn (expected, actual) => (expected = actual)) (expectedList, actualList)
+
+  (*
     Produces an error if the function call is passed the wrong number or wrong type
     of parameters
   *)
@@ -110,18 +117,54 @@ struct
       val numArgs = length(argTypeList)
       val numParams = length(paramTypeList)
 
-      fun checkArgTypes(params, args) =
-        ListPair.all (fn (paramType, argType) => (paramType = argType)) (params, args)
     in
       if numParams <> numArgs then
         ErrorMsg.error pos ("Expected " ^ Int.toString(numParams) ^ " arguments, got "
           ^ Int.toString(numArgs))
       else
-        if not (checkArgTypes(paramTypeList, argTypeList)) then
+        if not (checkTypeList(paramTypeList, argTypeList)) then
           ErrorMsg.error pos "Unexpected argument types"
       else
         ()
     end
+
+  (*
+    Produces an error if the given record expression does not conform to the record type
+    which it is declared to be
+  *)
+  fun checkRecordType(T.RECORD(typeFields, unique), recordFields, pos) =
+        let
+          val typeFieldLength = length(typeFields)
+          val recordFieldLength = length(recordFields)
+
+          fun getTy(sym, ty) = ty
+          fun getName(sym, ty) = sym
+
+          val expectedTypes = map getTy typeFields
+          val actualTypes = map getTy recordFields
+
+          val expectedNames = map getName typeFields
+          val actualNames = map getName recordFields
+
+          fun sameFieldNames(typeFieldNames, recordFieldNames) =
+            ListPair.all
+              (fn (typeFieldName, recordFieldName) => (typeFieldName = recordFieldName))
+              (typeFieldNames, recordFieldNames)
+
+        in
+          if typeFieldLength <> recordFieldLength then
+            ErrorMsg.error pos ("Expected " ^ Int.toString(typeFieldLength) ^ " fields, got " ^
+              Int.toString(recordFieldLength))
+          else if not (checkTypeList(expectedTypes, actualTypes)) then
+              ErrorMsg.error pos ("Record field type mismatch")
+          else if not (sameFieldNames(expectedNames, actualNames)) then
+              ErrorMsg.error pos ("Record field name mismatch")
+          else
+            ()
+        end
+
+    | checkRecordType(actualType, recordFields, pos) =
+        ErrorMsg.error pos ("Cannot assign a record to type " ^ T.typeToString(actualType))
 
   (*
     Produces an error if the given symbol is not in the given table and returns an
@@ -150,13 +193,10 @@ struct
     Produces an error is var is not writable 
   *)
   fun checkWritable(venv, A.SimpleVar(symbol, pos)) = 
-    (case lookupSymbol(venv, symbol, pos) of
-      SOME(E.VarEntry{ty, readOnly}) => 
-        if readOnly then
-          ErrorMsg.error pos ("Unable to assign to read only variable " ^ S.name(symbol))
-        else
-        ()
-     | _ => ())
+        (case lookupSymbol(venv, symbol, pos) of
+          SOME(E.VarEntry{ty, readOnly=true}) => 
+            ErrorMsg.error pos ("Unable to assign to read only variable " ^ S.name(symbol))
+        | _ => ())
     | checkWritable(venv, _) = ()
 
 
@@ -337,11 +377,6 @@ struct
       | trexp(A.VarExp(var)) =
           transVar(venv, tenv, var)
 
-      (* 
-      TODO: Implement RecordExp
-      | trexp(A.RecordExp{fields, typ, pos}) = 
-      *)
-
       | trexp(A.CallExp{func, args, pos}) =
           let
             val funcEntry = Option.getOpt(lookupSymbol(venv, func, pos), E.VarEntry{ty=T.UNIT, readOnly=false})
@@ -403,7 +438,23 @@ struct
             (* TODO how to handle break type*)
            {exp=(), ty=T.BREAK})
 
-      | trexp(_) = {exp=(), ty=T.UNIT}
+      | trexp(A.RecordExp{fields=fieldList, typ, pos}) =
+          let
+            val recordType = actualType(
+              tenv,
+              Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT))
+
+            fun getFieldType(symbol, exp, pos) =
+              let val {exp=(), ty=fieldTy} = trexp exp
+              in
+                (symbol, fieldTy)
+              end
+
+            val fieldTypeList = map getFieldType fieldList
+          in
+            (checkRecordType(recordType, fieldTypeList, pos);
+              {exp=(), ty=recordType})
+          end
 
       in trexp
     end
