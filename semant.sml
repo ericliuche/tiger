@@ -26,15 +26,19 @@ struct
 
   (* Produces an error if the given expty is not an integer *)
   fun checkInt(message, {exp, ty}, pos) =
-    case ty of
-      T.INT => ()
-    | actual => ErrorMsg.error pos (message ^ "Expected int, got " ^ (T.typeToString actual))
+    if T.isSubtype(ty, T.INT) then
+      ()
+    else
+      ErrorMsg.error pos (message ^ "Expected int, got " ^ (T.typeToString ty))
 
   (* Produces an error if the given expty is not unit type *)
   fun checkUnit(message, {exp, ty}, pos) =
-    case ty of
-      T.UNIT => ()
-    | actual => ErrorMsg.error pos (message ^ "Expected unit, got " ^ (T.typeToString actual))
+    if T.isSubtype(ty, T.UNIT) then
+      ()
+    else
+      ErrorMsg.error pos (message ^ "Expected unit, got " ^ (T.typeToString ty))
+
+  (* TODO: Use isSubtype wherever necessary*)
 
   (* Produces an error if the given exptys cannot be used in a comparison operator *)
   fun checkCompOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
@@ -332,6 +336,11 @@ struct
 
       | trexp(A.VarExp(var)) =
           transVar(venv, tenv, var)
+
+      (* 
+      TODO: Implement RecordExp
+      | trexp(A.RecordExp{fields, typ, pos}) = 
+      *)
 
       | trexp(A.CallExp{func, args, pos}) =
           let

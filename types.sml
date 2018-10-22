@@ -13,6 +13,22 @@ struct
     | NAME of Symbol.symbol * ty option ref
     | UNIT
 
+  (* TODO: Implement Join *)
+
+  fun isSubtype(NIL, RECORD(_)) = true
+    | isSubtype(ARRAY(a1), ARRAY(a2)) = a1 = a2
+    | isSubtype(RECORD(r1), RECORD(r2)) = r1 = r2
+    | isSubtype(BREAK, _) = true
+    | isSubtype(NAME(sym, tyRef), ty) =
+      (case !tyRef of
+           NONE => false
+         | SOME(tyRef) => isSubtype(tyRef, ty))
+    | isSubtype(ty, NAME(sym, tyRef)) = 
+      (case !tyRef of
+           NONE => false
+         | SOME(tyRef) => isSubtype(ty, tyRef))
+    | isSubtype(t1, t2) = t1 = t2
+
   fun typeToString t =
     case t of
       INT => "integer"
