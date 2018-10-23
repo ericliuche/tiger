@@ -149,6 +149,16 @@ struct
         ErrorMsg.error pos ("Cannot assign a record to type " ^ T.typeToString(actualType))
 
   (*
+    Produces an error if all symbols in the list are not unique
+  *)
+  fun checkUnique((sym, pos)::rest, seen) =
+        if S.contains(seen, sym) then
+          ErrorMsg.error pos ("Illegal duplicate identifier: " ^ (S.name sym))
+        else checkUnique(rest, S.enter(seen, sym, true))
+
+    | checkUnique(nil, seen) = ()
+
+  (*
     Produces an error if the given symbol is not in the given table and returns an
     option of the table value
   *)
@@ -351,6 +361,8 @@ struct
 
           val headers = map getHeaderInfo decList
 
+          val namesAndPos = map (fn ({name, params, result, body, pos}) => (name, pos)) decList
+
           fun createHeaderEnv((name, formals, result), curVenv) =
             S.enter(curVenv, name, E.FunEntry{formals=formals, result=result})
 
@@ -360,7 +372,8 @@ struct
           fun createEnv(functionDec, {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, false)
 
         in
-          foldl createEnv {venv=venv, tenv=tenv} decList
+          (checkUnique(namesAndPos, S.empty);
+           foldl createEnv {venv=venv, tenv=tenv} decList)
         end
 
 
@@ -381,9 +394,10 @@ struct
 
       | trexp(A.ArrayExp{typ, size, init, pos}) =
           let
-            val declaredType = lookupSymbol(tenv, typ, pos)
+            fun getActualType(ty) = actualType(tenv, ty)
+            val declaredType = Option.map getActualType (lookupSymbol(tenv, typ, pos))
             val arraySubtype = case declaredType of
-              SOME(T.ARRAY(ty, unique)) => SOME(ty)
+              SOME(T.ARRAY(ty, unique)) => SOME((print (T.typeToString ty);ty))
             | nonarray => nonarray
 
             val {exp=_, ty=initType} = trexp init

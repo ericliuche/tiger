@@ -16,7 +16,7 @@ struct
   (* TODO: Implement Join *)
 
   fun isSubtype(NIL, RECORD(_)) = true
-    | isSubtype(ARRAY(a1, _), ARRAY(a2, _)) = isSubtype(a1, a2)
+    | isSubtype(ARRAY(_, u1), ARRAY(_, u2)) = (u1 = u2)
     | isSubtype(RECORD(r1), RECORD(r2)) = (r1 = r2)
     | isSubtype(BREAK, _) = true
     | isSubtype(NAME(sym, tyRef), ty) =
@@ -41,6 +41,7 @@ struct
         "}"
     | ARRAY(ty, _) => "array of " ^ (typeToString ty)
     | NAME(sym, ty) => Symbol.name(sym)
+    | BREAK => "break"
 
 end
 
