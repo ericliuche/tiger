@@ -338,10 +338,28 @@ struct
         end
 
     | A.FunctionDec(decList) =>
-        foldl
-          (fn (functionDec, {venv, tenv}) => transFuncDec(venv, tenv, functionDec, inLoop))
+        let
+          fun getFormal({name, escape, typ, pos}) = Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT)
+
+          fun getHeaderInfo({name, params, result=SOME(result, resultPos), body, pos}) =
+                (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), T.UNIT))
+
+            | getHeaderInfo({name, params, result=NONE, body, pos}) =
+                (name, map getFormal params, T.UNIT)
+
+          val headers = map getHeaderInfo decList
+
+          fun createHeaderEnv((name, formals, result), curVenv) =
+            S.enter(curVenv, name, E.FunEntry{formals=formals, result=result})
+
+          val headerEnv = foldl createHeaderEnv venv headers
+
+        in
+          foldl
+          (fn (functionDec, {venv, tenv}) => transFuncDec(headerEnv, tenv, functionDec, inLoop))
           ({venv=venv, tenv=tenv})
           (decList)
+        end
 
 
   (*
@@ -408,11 +426,11 @@ struct
 
       | trexp(A.CallExp{func, args, pos}) =
           let
-            val funcEntry = Option.getOpt(lookupSymbol(venv, func, pos), E.VarEntry{ty=T.UNIT, readOnly=false})
+            val funcEntry = lookupSymbol(venv, func, pos)
             val {formals=paramTypes, result=resultType} =
               case funcEntry of
-                E.FunEntry{formals, result} => {formals=formals, result=result}
-              | E.VarEntry{ty, readOnly} => {formals=[], result=T.UNIT} 
+                SOME(E.FunEntry{formals, result}) => {formals=formals, result=result}
+              | _ => {formals=[], result=T.UNIT} 
 
             val argExptys = map trexp args
             val argTypes = map (fn ({exp, ty}) => ty) argExptys
