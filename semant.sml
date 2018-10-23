@@ -357,7 +357,7 @@ struct
           val headerEnv = foldl createHeaderEnv venv headers
 
           (* Add the functions to the actual environments *)
-          fun createEnv(functionDec, {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, inLoop)
+          fun createEnv(functionDec, {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, false)
 
         in
           foldl createEnv {venv=venv, tenv=tenv} decList
@@ -432,7 +432,8 @@ struct
             val {formals=paramTypes, result=resultType} =
               case funcEntry of
                 SOME(E.FunEntry{formals, result}) => {formals=formals, result=result}
-              | _ => {formals=[], result=T.UNIT} 
+              | _ => (ErrorMsg.error pos "Unable to apply a non-function value";
+                     {formals=[], result=T.UNIT})
 
             val argExptys = map trexp args
             val argTypes = map (fn ({exp, ty}) => ty) argExptys
