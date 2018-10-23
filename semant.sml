@@ -1,4 +1,4 @@
-structure Semant: sig val transProg : Absyn.exp -> bool end =
+structure Semant: sig val transProg : Absyn.exp -> unit end =
 struct
 
   structure A = Absyn
@@ -18,17 +18,13 @@ struct
 
   (* Produces an error if the given expty is not an integer *)
   fun checkInt(message, {exp, ty}, pos) =
-    if T.isSubtype(ty, T.INT) then
-      ()
-    else
-      error pos (message ^ "Expected int, got " ^ (T.typeToString ty))
+    if T.isSubtype(ty, T.INT) then ()
+    else error pos (message ^ "Expected int, got " ^ (T.typeToString ty))
 
   (* Produces an error if the given expty is not unit type *)
   fun checkUnit(message, {exp, ty}, pos) =
-    if T.isSubtype(ty, T.UNIT) then
-      ()
-    else
-      error pos (message ^ "Expected unit, got " ^ (T.typeToString ty))
+    if T.isSubtype(ty, T.UNIT) then ()
+    else error pos (message ^ "Expected unit, got " ^ (T.typeToString ty))
 
   (* Produces an error if the given exptys cannot be used in a comparison operator *)
   fun checkCompOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
@@ -50,8 +46,7 @@ struct
   fun checkAssignmentTypes({exp=_, ty=varTy}, {exp=_, ty=expTy}, pos) =
     if not (T.isSubtype(expTy, varTy)) then
       error pos ("Invalid assignment to type " ^ T.typeToString(varTy))
-    else
-      ()
+    else ()
 
   (*
     Produces an error if the variable type and the type of its initialization expression
@@ -59,9 +54,9 @@ struct
   *)
   fun checkVarDecTypes(SOME({exp=_, ty=declaredType}), {exp=_, ty=inferredType}, pos) = 
         if not(T.isSubtype(inferredType, declaredType)) then 
-          error pos ("Expected " ^ T.typeToString(declaredType) ^ ", got " ^ T.typeToString(inferredType))
-        else
-          ()
+          error pos ("Expected " ^ T.typeToString(declaredType) ^
+                     ", got " ^ T.typeToString(inferredType))
+        else ()
 
     | checkVarDecTypes(NONE, {exp=_, ty=inferredType}, pos) =
         if inferredType = T.NIL then error pos ("Unable to infer type") else ()
@@ -73,8 +68,8 @@ struct
   fun checkDeclaredType(SOME(declared), actual, pos) =
         if not(T.isSubtype(actual, declared)) then
           (error pos ("Mismatch between declared and actual types - Expected " ^
-            T.typeToString(declared) ^ ", got " ^ T.typeToString(actual));
-          T.UNIT)
+                      T.typeToString(declared) ^ ", got " ^ T.typeToString(actual));
+          T.TOP)
         else
           declared
 
@@ -88,7 +83,9 @@ struct
   fun checkFunctionDeclaredType(NONE, actual, pos) =
         (checkUnit("Procedure definition: ", {exp=(), ty=actual}, pos);
         T.UNIT)
-    | checkFunctionDeclaredType(declaredOpt, actual, pos) = checkDeclaredType(declaredOpt, actual, pos)
+
+    | checkFunctionDeclaredType(declaredOpt, actual, pos) =
+        checkDeclaredType(declaredOpt, actual, pos)
 
   (*
     Produces an error if the two branches do not have compatible types
@@ -96,15 +93,16 @@ struct
   fun checkIfThenElseTypes(consTy, antTy, pos) =
     if not(T.isSubtype(consTy, antTy)) andalso not(T.isSubtype(antTy, consTy)) then
       error pos "Mismatch between if-then-else branch types"
-    else
-      ()
+    else ()
 
   (*
     Produces an error if the given list of types is not compatible with the given list
     of actual types. 
   *)
   fun checkTypeList(expectedList, actualList) =
-    ListPair.allEq (fn (expected, actual) => (T.isSubtype(actual, expected))) (expectedList, actualList)
+    ListPair.allEq
+      (fn (expected, actual) => (T.isSubtype(actual, expected)))
+      (expectedList, actualList)
 
   (*
     Produces an error if the function call is passed the wrong number or wrong type
@@ -117,13 +115,11 @@ struct
 
     in
       if numParams <> numArgs then
-        error pos ("Expected " ^ Int.toString(numParams) ^ " arguments, got "
-          ^ Int.toString(numArgs))
-      else
-        if not (checkTypeList(paramTypeList, argTypeList)) then
+        error pos ("Expected " ^ Int.toString(numParams) ^ " arguments, got " ^
+                   Int.toString(numArgs))
+      else if not (checkTypeList(paramTypeList, argTypeList)) then
           error pos "Unexpected argument types"
-      else
-        ()
+      else ()
     end
 
   (*
@@ -146,7 +142,8 @@ struct
 
           fun sameFieldNames(typeFieldNames, recordFieldNames) =
             ListPair.all
-              (fn (typeFieldName: S.symbol, recordFieldName: S.symbol) => (typeFieldName = recordFieldName))
+              (fn (typeFieldName: S.symbol, recordFieldName: S.symbol) =>
+                (typeFieldName = recordFieldName))
               (typeFieldNames, recordFieldNames)
 
         in
@@ -194,7 +191,7 @@ struct
   *)
   fun actualType(tenv, ty) =
     case ty of
-      T.NAME(sym, tyRef) => actualType(tenv, Option.getOpt(!tyRef, T.UNIT))
+      T.NAME(sym, tyRef) => actualType(tenv, Option.getOpt(!tyRef, T.TOP))
     | _ => ty
 
   (* 
@@ -214,7 +211,8 @@ struct
 
       fun cycle(tenv, T.NAME(sym, tyRef), seen) =
             (case !tyRef of
-              SOME(ty) => (S.contains(seen, sym)) orelse (cycle(tenv, ty, S.enter(seen, sym, true)))
+              SOME(ty) => (S.contains(seen, sym)) orelse
+                          (cycle(tenv, ty, S.enter(seen, sym, true)))
             | NONE => true)
         | cycle(tenv, _, seen) = false
 
@@ -233,16 +231,16 @@ struct
   fun transTy(tenv, absynTy) =
     case absynTy of
       A.NameTy(sym, pos) =>
-        Option.getOpt(lookupSymbol(tenv, sym, pos), T.UNIT)
+        Option.getOpt(lookupSymbol(tenv, sym, pos), T.TOP)
 
     | A.ArrayTy(sym, pos) =>
-        T.ARRAY(actualType(tenv, Option.getOpt(lookupSymbol(tenv, sym, pos), T.UNIT)), ref ())
+        T.ARRAY(actualType(tenv, Option.getOpt(lookupSymbol(tenv, sym, pos), T.TOP)), ref ())
 
     | A.RecordTy(fieldList) =>
         T.RECORD(
           map
             (fn ({name, escape, typ, pos}) =>
-              (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT)))
+              (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP)))
             (fieldList),
           ref ())
 
@@ -267,23 +265,23 @@ struct
                       getFieldType(tail)
 
                 | getFieldType(nil) = (
-                  error pos ("Field " ^ S.name(sym) ^ " does not exist");
-                  {exp=(), ty=T.UNIT})
+                    error pos ("Field " ^ S.name(sym) ^ " does not exist");
+                    {exp=(), ty=T.TOP})
             in
               getFieldType(fieldList)
             end
 
         | _ => (
           error pos (S.name(sym) ^ " is not a record type");
-          {exp=(), ty=T.UNIT}))
+          {exp=(), ty=T.TOP}))
 
     | A.SubscriptVar(var, exp, pos) =>
         (checkInt("Array index: ", transExp(venv, tenv, inLoop) exp, pos);
         case transVar(venv, tenv, var, inLoop) of
           {exp=_, ty=T.ARRAY(ty, unique)} => {exp=(), ty=actualType(tenv, ty)}
-        | _ => (
-          error pos "Cannot subscript a non-array type";
-          {exp=(), ty=T.UNIT}))
+        
+        | _ => (error pos "Cannot subscript a non-array type";
+          {exp=(), ty=T.TOP}))
 
 
   (*
@@ -291,7 +289,7 @@ struct
   *)
   and transFuncDec(venv, tenv, {name, params, result, body, pos}, inLoop) =
     let
-      fun getParamTypes({name, escape, typ, pos}) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT))
+      fun getParamTypes({name, escape, typ, pos}) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP))
       val params' = map getParamTypes params
       val formals = map (fn (name, ty) => ty) params'
 
@@ -367,10 +365,10 @@ struct
         let
 
           (* Create the type environment with function header information *)
-          fun getFormal({name, escape, typ, pos}) = Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT)
+          fun getFormal({name, escape, typ, pos}) = Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP)
 
           fun getHeaderInfo({name, params, result=SOME(result, resultPos), body, pos}) =
-                (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), T.UNIT))
+                (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), T.TOP))
             
             | getHeaderInfo({name, params, result=NONE, body, pos}) =
                 (name, map getFormal params, T.UNIT)
@@ -420,7 +418,7 @@ struct
           in
             (checkInt("Array size: ", trexp size, pos);
              checkDeclaredType(arraySubtype, initType, pos); 
-            {exp=(), ty=Option.getOpt(declaredType, T.UNIT)})
+            {exp=(), ty=Option.getOpt(declaredType, T.TOP)})
           end
         
       | trexp(A.OpExp{left, oper, right, pos}) =
@@ -463,7 +461,7 @@ struct
               case funcEntry of
                 SOME(E.FunEntry{formals, result}) => {formals=formals, result=result}
               | _ => (error pos "Unable to apply a non-function value";
-                     {formals=[], result=T.UNIT})
+                     {formals=[], result=T.TOP})
 
             val argExptys = map trexp args
             val argTypes = map (fn ({exp, ty}) => ty) argExptys
@@ -489,7 +487,7 @@ struct
           in
             (checkInt("If test expression: ", trexp test, pos);
              checkIfThenElseTypes(consTy, antTy, pos);
-            {exp=(), ty=consTy})
+            {exp=(), ty=T.join(consTy, antTy)})
           end
 
       | trexp(A.ForExp{var, escape, lo, hi, body, pos}) = 
@@ -511,7 +509,7 @@ struct
           let
             val recordType = actualType(
               tenv,
-              Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT))
+              Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP))
 
             fun getFieldType(symbol, exp, pos) =
               let val {exp=(), ty=fieldTy} = trexp exp
@@ -526,11 +524,9 @@ struct
           end
 
       | trexp(A.BreakExp(pos)) = 
-          (if not inLoop then
-            error pos "Illegal break, must be within a for or while loop"
-          else 
-            ();
-          {exp=(), ty=T.BREAK})
+          (if not inLoop then error pos "Illegal break, must be within a for or while loop"
+           else ();
+           {exp=(), ty=T.BREAK})
 
       fun trexpLoop(A.BreakExp(pos)) = {exp=(), ty=T.BREAK}
         | trexpLoop(exp) = trexp(exp)
@@ -543,10 +539,8 @@ struct
   fun transProg ast =
     (legalAst := true;
     let 
-      val venv = E.baseVenv
-      val tenv = E.baseTenv
-      val {exp=_, ty=topLevelType} = (transExp (venv, tenv, false) ast)
-    in !legalAst
+      val {exp=_, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false) ast)
+    in ()
     end)
 
 end
