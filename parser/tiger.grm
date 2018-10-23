@@ -69,10 +69,10 @@ structure S = Symbol
 
 %right ASSIGN
 
-%nonassoc EQ NEQ GT GE LT LE
-
 %left OR
 %left AND
+
+%nonassoc EQ NEQ GT GE LT LE
 
 %left PLUS MINUS
 %left TIMES DIVIDE 
