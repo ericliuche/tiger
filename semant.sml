@@ -38,8 +38,6 @@ struct
     else
       ErrorMsg.error pos (message ^ "Expected unit, got " ^ (T.typeToString ty))
 
-  (* TODO: Use isSubtype wherever necessary*)
-
   (* Produces an error if the given exptys cannot be used in a comparison operator *)
   fun checkCompOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
     case (tyLeft, tyRight) of
@@ -48,6 +46,7 @@ struct
         ("Expected (int, int) or (string, string), got (" ^ (T.typeToString actualLeft) ^
         ", " ^ (T.typeToString(actualRight)) ^ ")")
 
+  (* Produces an error if the given exptys cannot be used in an equality comparison *)
   fun checkEqualOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
     case (T.isSubtype(tyLeft, tyRight), T.isSubtype(tyRight, tyLeft)) of
       (false, false) =>
@@ -198,6 +197,25 @@ struct
     | checkWritable(venv, _) = ()
 
 
+  (* Produces an error if the given type environment has cyclical definitions *)
+  fun checkEnvCycles({venv, tenv}, names, pos) =
+    let
+
+      fun cycle(tenv, T.NAME(sym, tyRef), seen) =
+            (case !tyRef of
+              SOME(ty) => (S.contains(seen, sym)) orelse (cycle(tenv, ty, S.enter(seen, sym, true)))
+            | NONE => true)
+        | cycle(tenv, _, seen) = false
+
+      val foundCycle = foldl
+        (fn (ty, foundCycle) => foundCycle orelse (cycle(tenv, ty, S.empty)))
+        (false)
+        (names)
+    in
+      if foundCycle then ErrorMsg.error pos "Found cyclical type definition" else ()
+    end
+
+
   (*
     Transforms and type-checks an Absyn.Ty in the given type environment
   *)
@@ -303,10 +321,36 @@ struct
         end
 
     | A.TypeDec(decList) =>
-        {venv=venv, tenv= foldl
-          (fn ({name, ty, pos}, curTenv) => S.enter(curTenv, name, transTy(curTenv, ty)))
-          (tenv)
-          (decList)}
+        let
+
+          (* Build environment with empty name types *)
+          val names = map (fn ({name, ty, pos}) => T.NAME(name, ref NONE)) decList
+        
+          fun addToNameTenv(name, curTenv) =
+            case name of
+              T.NAME(tyname, ty) => S.enter(curTenv, tyname, name)
+            | _ => curTenv
+          
+          val nameTenv = foldl addToNameTenv tenv names
+
+          (* Build real environment by resolving actual types for each name *)
+          fun addToTenv({name, ty, pos}, curTenv) =
+              let
+                val tyResult = transTy(nameTenv, ty)
+                val nameEnvResult = lookupSymbol(nameTenv, name, pos)
+              in
+                (case nameEnvResult of
+                  SOME(T.NAME(sym, tyRef)) => tyRef := SOME(tyResult)
+                | _ => ();
+                S.enter(curTenv, name, tyResult))
+              end
+
+          val {name=_, ty=_, pos=startPos} = hd(decList)
+          val env = {venv=venv, tenv= foldl addToTenv tenv decList}
+        in
+          (checkEnvCycles(env, names, startPos);
+          env)
+        end
 
     | A.FunctionDec(decList) =>
         foldl

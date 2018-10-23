@@ -7,6 +7,7 @@ sig
   val empty : 'a table
   val enter : 'a table * symbol * 'a -> 'a table
   val look  : 'a table * symbol -> 'a option
+  val contains : 'a table * symbol -> bool
   val initTable : (symbol * 'a) list -> 'a table
 end
 
@@ -41,6 +42,8 @@ struct
   val empty = Table.empty
   val enter = Table.enter
   val look = Table.look
+  
+  fun contains(table, sym) = isSome(look(table, sym))
 
   (* Initializes a symbol table from the given list of (symbol, value) tuples *)
   val initTable = fn (entryList) =>
