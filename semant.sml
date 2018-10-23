@@ -449,6 +449,7 @@ struct
 
       | trexp(A.IfExp{test, then', else'=NONE, pos}) =
           (checkInt("If test expression: ", trexp test, pos);
+           checkUnit("If body expression: ", trexp then', pos);
           {exp=(), ty=T.UNIT})
 
       | trexp(A.IfExp{test, then', else'=SOME(antecedent), pos}) =
