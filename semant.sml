@@ -130,7 +130,7 @@ struct
 
           fun sameFieldNames(typeFieldNames, recordFieldNames) =
             ListPair.all
-              (fn (typeFieldName, recordFieldName) => (typeFieldName = recordFieldName))
+              (fn (typeFieldName: S.symbol, recordFieldName: S.symbol) => (typeFieldName = recordFieldName))
               (typeFieldNames, recordFieldNames)
 
         in
@@ -339,11 +339,13 @@ struct
 
     | A.FunctionDec(decList) =>
         let
+
+          (* Create the type environment with function header information *)
           fun getFormal({name, escape, typ, pos}) = Option.getOpt(lookupSymbol(tenv, typ, pos), T.UNIT)
 
           fun getHeaderInfo({name, params, result=SOME(result, resultPos), body, pos}) =
                 (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), T.UNIT))
-
+            
             | getHeaderInfo({name, params, result=NONE, body, pos}) =
                 (name, map getFormal params, T.UNIT)
 
@@ -354,11 +356,11 @@ struct
 
           val headerEnv = foldl createHeaderEnv venv headers
 
+          (* Add the functions to the actual environments *)
+          fun createEnv(functionDec, {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, inLoop)
+
         in
-          foldl
-          (fn (functionDec, {venv, tenv}) => transFuncDec(headerEnv, tenv, functionDec, inLoop))
-          ({venv=venv, tenv=tenv})
-          (decList)
+          foldl createEnv {venv=venv, tenv=tenv} decList
         end
 
 
