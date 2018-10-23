@@ -13,7 +13,6 @@ struct
     | NAME of Symbol.symbol * ty option ref
     | UNIT
 
-  (* TODO: Implement Join *)
 
   fun isSubtype(NIL, RECORD(_)) = true
     | isSubtype(ARRAY(_, u1), ARRAY(_, u2)) = (u1 = u2)

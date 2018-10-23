@@ -1,4 +1,4 @@
-structure Semant: sig val transProg : Absyn.exp -> Types.ty end =
+structure Semant: sig val transProg : Absyn.exp -> bool end =
 struct
 
   structure A = Absyn
@@ -9,25 +9,32 @@ struct
   (* The result type of transforming and type-checking an expression *)
   type expty = {exp: unit, ty: T.ty}
 
+  (* Tracks whether the current AST is valid *)
+  val legalAst = ref true
+
+  (* Prints the given error message and marks the current AST as illegal *)
+  fun error pos = fn msg =>
+    (legalAst := false; ErrorMsg.error pos msg)
+
   (* Produces an error if the given expty is not an integer *)
   fun checkInt(message, {exp, ty}, pos) =
     if T.isSubtype(ty, T.INT) then
       ()
     else
-      ErrorMsg.error pos (message ^ "Expected int, got " ^ (T.typeToString ty))
+      error pos (message ^ "Expected int, got " ^ (T.typeToString ty))
 
   (* Produces an error if the given expty is not unit type *)
   fun checkUnit(message, {exp, ty}, pos) =
     if T.isSubtype(ty, T.UNIT) then
       ()
     else
-      ErrorMsg.error pos (message ^ "Expected unit, got " ^ (T.typeToString ty))
+      error pos (message ^ "Expected unit, got " ^ (T.typeToString ty))
 
   (* Produces an error if the given exptys cannot be used in a comparison operator *)
   fun checkCompOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
     case (tyLeft, tyRight) of
       ((T.INT, T.INT) | (T.STRING, T.STRING)) => ()
-    | (actualLeft, actualRight) => ErrorMsg.error pos
+    | (actualLeft, actualRight) => error pos
         ("Expected (int, int) or (string, string), got (" ^ (T.typeToString actualLeft) ^
         ", " ^ (T.typeToString(actualRight)) ^ ")")
 
@@ -35,14 +42,14 @@ struct
   fun checkEqualOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
     case (T.isSubtype(tyLeft, tyRight), T.isSubtype(tyRight, tyLeft)) of
       (false, false) =>
-        ErrorMsg.error pos ("Cannot compare equality for types " ^
+        error pos ("Cannot compare equality for types " ^
           T.typeToString(tyLeft) ^ " and " ^ T.typeToString(tyRight))
     | _ => ()
 
   (* Produces an error if the given expression cannot be assigned to the given variable *)
   fun checkAssignmentTypes({exp=_, ty=varTy}, {exp=_, ty=expTy}, pos) =
     if not (T.isSubtype(expTy, varTy)) then
-      ErrorMsg.error pos ("Invalid assignment to type " ^ T.typeToString(varTy))
+      error pos ("Invalid assignment to type " ^ T.typeToString(varTy))
     else
       ()
 
@@ -52,12 +59,12 @@ struct
   *)
   fun checkVarDecTypes(SOME({exp=_, ty=declaredType}), {exp=_, ty=inferredType}, pos) = 
         if not(T.isSubtype(inferredType, declaredType)) then 
-          ErrorMsg.error pos ("Expected " ^ T.typeToString(declaredType) ^ ", got " ^ T.typeToString(inferredType))
+          error pos ("Expected " ^ T.typeToString(declaredType) ^ ", got " ^ T.typeToString(inferredType))
         else
           ()
 
     | checkVarDecTypes(NONE, {exp=_, ty=inferredType}, pos) =
-        if inferredType = T.NIL then ErrorMsg.error pos ("Unable to infer type") else ()
+        if inferredType = T.NIL then error pos ("Unable to infer type") else ()
 
   (*
     Produces an error if the declared and actual types disagree and returns the declared type
@@ -65,7 +72,7 @@ struct
   *)
   fun checkDeclaredType(SOME(declared), actual, pos) =
         if not(T.isSubtype(actual, declared)) then
-          (ErrorMsg.error pos ("Mismatch between declared and actual types - Expected " ^
+          (error pos ("Mismatch between declared and actual types - Expected " ^
             T.typeToString(declared) ^ ", got " ^ T.typeToString(actual));
           T.UNIT)
         else
@@ -75,11 +82,20 @@ struct
         actual
 
   (*
+    Produces an error if the function return type and the body type are incompatible or
+    if a procedure has a non-unit type
+  *)
+  fun checkFunctionDeclaredType(NONE, actual, pos) =
+        (checkUnit("Procedure definition: ", {exp=(), ty=actual}, pos);
+        T.UNIT)
+    | checkFunctionDeclaredType(declaredOpt, actual, pos) = checkDeclaredType(declaredOpt, actual, pos)
+
+  (*
     Produces an error if the two branches do not have compatible types
   *)
   fun checkIfThenElseTypes(consTy, antTy, pos) =
     if not(T.isSubtype(consTy, antTy)) andalso not(T.isSubtype(antTy, consTy)) then
-      ErrorMsg.error pos "Mismatch between if-then-else branch types"
+      error pos "Mismatch between if-then-else branch types"
     else
       ()
 
@@ -101,11 +117,11 @@ struct
 
     in
       if numParams <> numArgs then
-        ErrorMsg.error pos ("Expected " ^ Int.toString(numParams) ^ " arguments, got "
+        error pos ("Expected " ^ Int.toString(numParams) ^ " arguments, got "
           ^ Int.toString(numArgs))
       else
         if not (checkTypeList(paramTypeList, argTypeList)) then
-          ErrorMsg.error pos "Unexpected argument types"
+          error pos "Unexpected argument types"
       else
         ()
     end
@@ -135,25 +151,25 @@ struct
 
         in
           if typeFieldLength <> recordFieldLength then
-            ErrorMsg.error pos ("Expected " ^ Int.toString(typeFieldLength) ^ " fields, got " ^
+            error pos ("Expected " ^ Int.toString(typeFieldLength) ^ " fields, got " ^
               Int.toString(recordFieldLength))
           else if not (checkTypeList(expectedTypes, actualTypes)) then
-              ErrorMsg.error pos ("Record field type mismatch")
+              error pos ("Record field type mismatch")
           else if not (sameFieldNames(expectedNames, actualNames)) then
-              ErrorMsg.error pos ("Record field name mismatch")
+              error pos ("Record field name mismatch")
           else
             ()
         end
 
     | checkRecordType(actualType, recordFields, pos) =
-        ErrorMsg.error pos ("Cannot assign a record to type " ^ T.typeToString(actualType))
+        error pos ("Cannot assign a record to type " ^ T.typeToString(actualType))
 
   (*
     Produces an error if all symbols in the list are not unique
   *)
   fun checkUnique((sym, pos)::rest, seen) =
         if S.contains(seen, sym) then
-          ErrorMsg.error pos ("Illegal duplicate identifier: " ^ (S.name sym))
+          error pos ("Illegal duplicate identifier: " ^ (S.name sym))
         else checkUnique(rest, S.enter(seen, sym, true))
 
     | checkUnique(nil, seen) = ()
@@ -166,7 +182,7 @@ struct
     let val symbolVal = S.look(table, symbol)
     in
       ((if not (isSome symbolVal) then 
-        ErrorMsg.error pos ("Undefined symbol " ^ S.name(symbol))
+        error pos ("Undefined symbol " ^ S.name(symbol))
       else
         ());
       symbolVal)
@@ -187,7 +203,7 @@ struct
   fun checkWritable(venv, A.SimpleVar(symbol, pos)) = 
         (case lookupSymbol(venv, symbol, pos) of
           SOME(E.VarEntry{ty, readOnly=true}) => 
-            ErrorMsg.error pos ("Unable to assign to read only variable " ^ S.name(symbol))
+            error pos ("Unable to assign to read only variable " ^ S.name(symbol))
         | _ => ())
     | checkWritable(venv, _) = ()
 
@@ -207,7 +223,7 @@ struct
         (false)
         (names)
     in
-      if foundCycle then ErrorMsg.error pos "Found cyclical type definition" else ()
+      if foundCycle then error pos "Found cyclical type definition" else ()
     end
 
 
@@ -251,14 +267,14 @@ struct
                       getFieldType(tail)
 
                 | getFieldType(nil) = (
-                  ErrorMsg.error pos ("Field " ^ S.name(sym) ^ " does not exist");
+                  error pos ("Field " ^ S.name(sym) ^ " does not exist");
                   {exp=(), ty=T.UNIT})
             in
               getFieldType(fieldList)
             end
 
         | _ => (
-          ErrorMsg.error pos (S.name(sym) ^ " is not a record type");
+          error pos (S.name(sym) ^ " is not a record type");
           {exp=(), ty=T.UNIT}))
 
     | A.SubscriptVar(var, exp, pos) =>
@@ -266,7 +282,7 @@ struct
         case transVar(venv, tenv, var, inLoop) of
           {exp=_, ty=T.ARRAY(ty, unique)} => {exp=(), ty=actualType(tenv, ty)}
         | _ => (
-          ErrorMsg.error pos "Cannot subscript a non-array type";
+          error pos "Cannot subscript a non-array type";
           {exp=(), ty=T.UNIT}))
 
 
@@ -284,7 +300,7 @@ struct
 
       val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop) body
 
-      val returnType = checkDeclaredType(
+      val returnType = checkFunctionDeclaredType(
         Option.mapPartial (fn (symbol, pos) => lookupSymbol(tenv, symbol, pos)) (result),
         bodyTy,
         pos)
@@ -310,7 +326,7 @@ struct
 
         in
           (case (declaredTyOpt, inferredTy) of
-            (NONE, T.NIL) => ErrorMsg.error pos "Unknown type of nil variable"
+            (NONE, T.NIL) => error pos "Unknown type of nil variable"
           |  _ => ();
           {venv=S.enter(venv, name, E.VarEntry{ty=variableType, readOnly=false}), tenv=tenv})
         end
@@ -397,7 +413,7 @@ struct
             fun getActualType(ty) = actualType(tenv, ty)
             val declaredType = Option.map getActualType (lookupSymbol(tenv, typ, pos))
             val arraySubtype = case declaredType of
-              SOME(T.ARRAY(ty, unique)) => SOME((print (T.typeToString ty);ty))
+              SOME(T.ARRAY(ty, unique)) => SOME(ty)
             | nonarray => nonarray
 
             val {exp=_, ty=initType} = trexp init
@@ -446,7 +462,7 @@ struct
             val {formals=paramTypes, result=resultType} =
               case funcEntry of
                 SOME(E.FunEntry{formals, result}) => {formals=formals, result=result}
-              | _ => (ErrorMsg.error pos "Unable to apply a non-function value";
+              | _ => (error pos "Unable to apply a non-function value";
                      {formals=[], result=T.UNIT})
 
             val argExptys = map trexp args
@@ -511,7 +527,7 @@ struct
 
       | trexp(A.BreakExp(pos)) = 
           (if not inLoop then
-            ErrorMsg.error pos "Illegal break, must be within a for or while loop"
+            error pos "Illegal break, must be within a for or while loop"
           else 
             ();
           {exp=(), ty=T.BREAK})
@@ -525,11 +541,12 @@ struct
 
   (* Translates and type-checks an abstract syntax tree *)
   fun transProg ast =
+    (legalAst := true;
     let 
       val venv = E.baseVenv
       val tenv = E.baseTenv
       val {exp=_, ty=topLevelType} = (transExp (venv, tenv, false) ast)
-    in topLevelType
-    end
+    in !legalAst
+    end)
 
 end
