@@ -12,6 +12,7 @@ parser/parse.sml
 env.sml
 types.sml
 semant.sml
+findescape.sml
 $/ml-yacc-lib.cm
 $/smlnj-lib.cm
 $/basis.cm
