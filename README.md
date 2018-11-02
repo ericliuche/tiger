@@ -1,9 +1,10 @@
 # Static Semantics
 
-### Nick Flanders and Eric Liu
+### Nick Flanders and Chenyang Eric Liu
 
 Our type-checker uses a lattice such that `BREAK` is the bottom type and `TOP`
-is the top type.
+is the top type. We use the helper functions `join` and `isSubtype` to aid
+in checking the correctness of types.
 
 Our `transExp` function takes both a variable environment and a type
 environment as well as an `inLoop` flag. Based on the value of `inLoop`,
