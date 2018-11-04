@@ -4,10 +4,19 @@ struct
   structure S = Symbol
   structure T = Types
 
-  datatype envEntry = VarEntry of {ty: T.ty, readOnly:bool}
-                    | FunEntry of {formals:T.ty list, result: T.ty}
+  datatype envEntry = VarEntry of {access: Translate.access,
+                                   ty: T.ty,
+                                   readOnly: bool}
 
-  fun fe(f, r) = FunEntry{formals=f, result=r}
+                    | FunEntry of {level: Translate.level,
+                                   label: Temp.label,
+                                   formals: T.ty list,
+                                   result: T.ty}
+
+  fun fe(f, r) = FunEntry{level=Translate.outermost,
+                          label=Temp.newlabel(),
+                          formals=f,
+                          result=r}
 
   val baseTenv : T.ty Symbol.table =
     S.initTable([

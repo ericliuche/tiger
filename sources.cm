@@ -13,6 +13,10 @@ env.sml
 types.sml
 semant.sml
 findescape.sml
+temp.sig
+temp.sml
+mipsframe.sml
+translate.sml
 $/ml-yacc-lib.cm
 $/smlnj-lib.cm
 $/basis.cm

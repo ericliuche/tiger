@@ -199,7 +199,7 @@ struct
   *)
   fun checkWritable(venv, A.SimpleVar(symbol, pos)) = 
         (case lookupSymbol(venv, symbol, pos) of
-          SOME(E.VarEntry{ty, readOnly=true}) => 
+          SOME(E.VarEntry{access, ty, readOnly=true}) => 
             error pos ("Unable to assign to read only variable " ^ S.name(symbol))
         | _ => ())
     | checkWritable(venv, _) = ()
@@ -247,15 +247,15 @@ struct
   (*
     Transforms and type-checks a variable
   *)
-  fun transVar(venv, tenv, var, inLoop) : expty =
+  fun transVar(venv, tenv, var, inLoop, level) : expty =
     case var of
       A.SimpleVar(sym, pos) =>
         (case lookupSymbol(venv, sym, pos) of
-          SOME(E.VarEntry{ty, readOnly}) => {exp=(), ty=actualType(tenv, ty)}
+          SOME(E.VarEntry{access, ty, readOnly}) => {exp=(), ty=actualType(tenv, ty)}
         | _ => {exp=(), ty=T.UNIT})
 
     | A.FieldVar(var, sym, pos) =>
-        (case transVar(venv, tenv, var, inLoop) of
+        (case transVar(venv, tenv, var, inLoop, level) of
           {exp=_, ty=T.RECORD(fieldList, unique)} =>
             let
               fun getFieldType((fieldName, fieldType) :: tail) =
@@ -276,8 +276,8 @@ struct
           {exp=(), ty=T.TOP}))
 
     | A.SubscriptVar(var, exp, pos) =>
-        (checkInt("Array index: ", transExp(venv, tenv, inLoop) exp, pos);
-        case transVar(venv, tenv, var, inLoop) of
+        (checkInt("Array index: ", transExp(venv, tenv, inLoop, level) exp, pos);
+        case transVar(venv, tenv, var, inLoop, level) of
           {exp=_, ty=T.ARRAY(ty, unique)} => {exp=(), ty=actualType(tenv, ty)}
         
         | _ => (error pos "Cannot subscript a non-array type";
@@ -287,33 +287,39 @@ struct
   (*
     Transforms and type-checks a function declaration in the given environments
   *)
-  and transFuncDec(venv, tenv, {name, params, result, body, pos}, inLoop) =
+  and transFuncDec(venv, tenv, {name, params, result, body, pos}, inLoop, level) =
     let
-      fun getParamTypes({name, escape, typ, pos}) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP))
-      val params' = map getParamTypes params
-      val formals = map (fn (name, ty) => ty) params'
+      val label = Temp.newlabel()
+      val formalEscapes = map (fn ({name, escape, typ, pos}) => !escape) params
+      val newLevel = Translate.newLevel{parent=level, name=label, formals=formalEscapes}
+      val formalAccesses = Translate.formals(newLevel)
 
-      fun addParamToBodyVenv((name, ty), curVenv) = S.enter(curVenv, name, E.VarEntry{ty=ty, readOnly=false})
+      fun getParamTypes(({name, escape, typ, pos}, access)) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP), access)
+      val params' = map getParamTypes (ListPair.zip (params, formalAccesses))
+      val formals = map (fn (name, ty, access) => ty) params'
+
+      fun addParamToBodyVenv((name, ty, access), curVenv) = S.enter(curVenv, name, E.VarEntry{access=access, ty=ty, readOnly=false})
       val bodyVenv = foldl addParamToBodyVenv venv params'
 
-      val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop) body
+      val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop, newLevel) body
 
       val returnType = checkFunctionDeclaredType(
         Option.mapPartial (fn (symbol, pos) => lookupSymbol(tenv, symbol, pos)) (result),
         bodyTy,
         pos)
     in
-      {venv=S.enter(venv, name, E.FunEntry{formals=formals, result=returnType}), tenv=tenv}
+      {venv=S.enter(venv, name, E.FunEntry{level=level, label=label, formals=formals, result=returnType}),
+       tenv=tenv}
     end
 
   (*
     Transforms and type-checks a declaration in the given environments
   *)
-  and transDec(venv, tenv, dec, inLoop) = 
+  and transDec(venv, tenv, dec, inLoop, level) = 
     case dec of 
        A.VarDec{name, escape, typ, init, pos} =>
         let
-          val {exp=_, ty=inferredTy} = transExp(venv, tenv, inLoop) init
+          val {exp=_, ty=inferredTy} = transExp(venv, tenv, inLoop, level) init
 
           val declaredTyOpt =
             Option.mapPartial
@@ -321,12 +327,14 @@ struct
               (typ)
 
           val variableType = checkDeclaredType(declaredTyOpt, inferredTy, pos)
+          val access = Translate.allocLocal(level)(!escape)
 
         in
           (case (declaredTyOpt, inferredTy) of
             (NONE, T.NIL) => error pos "Unknown type of nil variable"
           |  _ => ();
-          {venv=S.enter(venv, name, E.VarEntry{ty=variableType, readOnly=false}), tenv=tenv})
+          {venv=S.enter(venv, name, E.VarEntry{access=access, ty=variableType, readOnly=false}),
+           tenv=tenv})
         end
 
     | A.TypeDec(decList) =>
@@ -367,23 +375,31 @@ struct
           (* Create the type environment with function header information *)
           fun getFormal({name, escape, typ, pos}) = Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP)
 
+          fun getEscape({name, escape, typ, pos}) = !escape
+
           fun getHeaderInfo({name, params, result=SOME(result, resultPos), body, pos}) =
-                (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), T.TOP))
+                let val label = Temp.newlabel() in
+                  (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), T.TOP),
+                    label, (Translate.newLevel{parent=level, name=label, formals=(map getEscape params)}))
+                end
             
             | getHeaderInfo({name, params, result=NONE, body, pos}) =
-                (name, map getFormal params, T.UNIT)
+                let val label = Temp.newlabel() in
+                  (name, map getFormal params, T.UNIT,
+                    label, (Translate.newLevel{parent=level, name=label, formals=(map getEscape params)}))
+                end
 
           val headers = map getHeaderInfo decList
 
           val namesAndPos = map (fn ({name, params, result, body, pos}) => (name, pos)) decList
 
-          fun createHeaderEnv((name, formals, result), curVenv) =
-            S.enter(curVenv, name, E.FunEntry{formals=formals, result=result})
+          fun createHeaderEnv((name, formals, result, label, level), curVenv) =
+            S.enter(curVenv, name, E.FunEntry{level=level, label=label, formals=formals, result=result})
 
           val headerEnv = foldl createHeaderEnv venv headers
 
           (* Add the functions to the actual environments *)
-          fun createEnv(functionDec, {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, false)
+          fun createEnv(functionDec, {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, false, level)
 
         in
           (checkUnique(namesAndPos, S.empty);
@@ -395,7 +411,7 @@ struct
     Produces a transformation function which type-checks an expression with the given
     environments
   *)
-  and transExp(venv, tenv, inLoop) : A.exp -> expty =
+  and transExp(venv, tenv, inLoop, level) : A.exp -> expty =
     let
       fun trexp(A.IntExp(intVal)) : expty =
             {exp=(), ty=T.INT}
@@ -444,22 +460,22 @@ struct
       | trexp(A.LetExp{decs, body, pos}) = 
           let val {venv=venv, tenv=tenv} = 
             foldl 
-              (fn (dec, {venv=curVenv, tenv=curTenv}) => transDec(curVenv, curTenv, dec, inLoop))
+              (fn (dec, {venv=curVenv, tenv=curTenv}) => transDec(curVenv, curTenv, dec, inLoop, level))
               ({venv=venv, tenv=tenv})
               (decs)
           in 
-            transExp(venv, tenv, inLoop) body
+            transExp(venv, tenv, inLoop, level) body
           end
 
       | trexp(A.VarExp(var)) =
-          transVar(venv, tenv, var, inLoop)
+          transVar(venv, tenv, var, inLoop, level)
 
       | trexp(A.CallExp{func, args, pos}) =
           let
             val funcEntry = lookupSymbol(venv, func, pos)
             val {formals=paramTypes, result=resultType} =
               case funcEntry of
-                SOME(E.FunEntry{formals, result}) => {formals=formals, result=result}
+                SOME(E.FunEntry{level, label, formals, result}) => {formals=formals, result=result}
               | _ => (error pos "Unable to apply a non-function value";
                      {formals=[], result=T.TOP})
 
@@ -472,7 +488,7 @@ struct
 
       | trexp(A.AssignExp{var, exp, pos}) =
           (checkWritable(venv, var);
-           checkAssignmentTypes(transVar(venv, tenv, var, inLoop), trexp exp, pos);
+           checkAssignmentTypes(transVar(venv, tenv, var, inLoop, level), trexp exp, pos);
           {exp=(), ty=T.UNIT})
 
       | trexp(A.IfExp{test, then', else'=NONE, pos}) =
@@ -492,17 +508,18 @@ struct
 
       | trexp(A.ForExp{var, escape, lo, hi, body, pos}) = 
           let 
-            val venv' = S.enter(venv, var, E.VarEntry{ty=T.INT, readOnly=true})
+            val access = Translate.allocLocal(level)(!escape)
+            val venv' = S.enter(venv, var, E.VarEntry{access=access, ty=T.INT, readOnly=true})
           in 
             (checkInt("For lo expression: ", trexp lo, pos);
              checkInt("For hi expression: ", trexp hi, pos);
-             checkUnit("For body expression: ", transExp(venv', tenv, true) body, pos);
+             checkUnit("For body expression: ", transExp(venv', tenv, true, level) body, pos);
             {exp=(), ty=T.UNIT})
           end
 
       | trexp(A.WhileExp{test, body, pos}) = 
           (checkInt("While test expression: ", trexp test, pos);
-           checkUnit("While body expression: ", transExp(venv, tenv, true) body, pos);
+           checkUnit("While body expression: ", transExp(venv, tenv, true, level) body, pos);
           {exp=(), ty=T.UNIT})
 
       | trexp(A.RecordExp{fields=fieldList, typ, pos}) =
@@ -538,8 +555,9 @@ struct
   (* Translates and type-checks an abstract syntax tree *)
   fun transProg ast =
     (legalAst := true;
-    let 
-      val {exp=_, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false) ast)
+    let
+      val mainLevel = Translate.newLevel{parent=Translate.outermost, name=Temp.newlabel(), formals=[]} 
+      val {exp=_, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel) ast)
     in ()
     end)
 
