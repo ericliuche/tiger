@@ -443,18 +443,23 @@ struct
           end
         
       | trexp(A.OpExp{left, oper, right, pos}) =
-          (case oper of
-            (A.PlusOp | A.MinusOp | A.TimesOp | A.DivideOp) =>
-              (checkInt("", trexp left, pos);
-               checkInt("", trexp right, pos);
-               {exp=Translate.TODO(), ty=T.INT})
-          | (A.LtOp | A.LeOp | A.GtOp | A.GeOp) =>
-              (checkCompOpTypes((trexp left), (trexp right), pos);
-              {exp=Translate.TODO(), ty=T.INT})
+          let
+            val leftResult as {exp=leftExp, ty=_} = trexp left
+            val rightResult as {exp=rightExp, ty=_} = trexp right
+          in
+            case oper of
+              (A.PlusOp | A.MinusOp | A.TimesOp | A.DivideOp) =>
+                (checkInt("", leftResult, pos);
+                 checkInt("", rightResult, pos);
+                 {exp=Translate.arithExp(leftExp, oper, rightExp), ty=T.INT})
+            | (A.LtOp | A.LeOp | A.GtOp | A.GeOp) =>
+                (checkCompOpTypes(leftResult, rightResult, pos);
+                {exp=Translate.TODO(), ty=T.INT})
 
-          | (A.EqOp | A.NeqOp) =>
-              (checkEqualOpTypes((trexp left), (trexp right), pos);
-               {exp=Translate.TODO(), ty=T.INT}))
+            | (A.EqOp | A.NeqOp) =>
+                (checkEqualOpTypes(leftResult, rightResult, pos);
+                {exp=Translate.TODO(), ty=T.INT})
+          end
 
       | trexp(A.SeqExp(expPosList)) =
           let val typeList = map (fn (exp, _) => trexp exp) expPosList

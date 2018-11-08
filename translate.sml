@@ -17,6 +17,8 @@ sig
 
   val intExp: int -> exp
 
+  val arithExp: exp * Absyn.oper * exp -> exp
+
   (* Dummy value to allow for testing with an incomplete implementation *)
   val TODO: unit -> exp
 
@@ -56,12 +58,15 @@ struct
 
   (* IR Translation *)
 
+  structure A = Absyn
   structure T = Tree
 
   datatype exp = Ex of T.exp
                | Nx of T.stm
                | Cx of Temp.label * Temp.label -> T.stm
 
+  (* Raised in cases that are impossible to reach in valid Tiger programs *)
+  exception IllegalProgramException
 
   exception EmptySeqException
 
@@ -107,6 +112,11 @@ struct
     | unCx(e as Ex(_)) = (fn (t, f) => T.CJUMP(T.NE, T.CONST 0, unEx e, t, f))
 
 
+  (* Debugging utility to print an exp and return it *)
+  fun printTree(exp) =
+    (Printtree.printtree(TextIO.stdOut, unNx exp); exp)
+
+
   fun simpleVar(varAcc as (varLevel, varFrameAccess), curLevel) =
     let
       fun unpackLevel(Level({parent, frame, unique})) = (parent, frame, unique)
@@ -141,8 +151,20 @@ struct
         T.CONST (Frame.wordSize)))))
 
 
-
   fun intExp(intVal) = Ex(T.CONST intVal)
+
+  fun arithExp(leftExp, oper, rightExp) =
+    let
+      val binop = case oper of
+        A.PlusOp   => T.PLUS
+      | A.MinusOp  => T.MINUS
+      | A.TimesOp  => T.MUL
+      | A.DivideOp => T.DIV
+      | _ => raise IllegalProgramException
+    in
+      printTree(Ex(T.BINOP(binop, unEx leftExp, unEx rightExp)))
+    end
+
 
   fun TODO() = Ex(T.CONST 0)
 
