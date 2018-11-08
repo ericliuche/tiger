@@ -7,7 +7,7 @@ struct
   structure T = Types
 
   (* The result type of transforming and type-checking an expression *)
-  type expty = {exp: unit, ty: T.ty}
+  type expty = {exp: Translate.exp, ty: T.ty}
 
   (* Tracks whether the current AST is valid *)
   val legalAst = ref true
@@ -81,7 +81,7 @@ struct
     if a procedure has a non-unit type
   *)
   fun checkFunctionDeclaredType(NONE, actual, pos) =
-        (checkUnit("Procedure definition: ", {exp=(), ty=actual}, pos);
+        (checkUnit("Procedure definition: ", {exp=Translate.TODO(), ty=actual}, pos);
         T.UNIT)
 
     | checkFunctionDeclaredType(declaredOpt, actual, pos) =
@@ -251,8 +251,8 @@ struct
     case var of
       A.SimpleVar(sym, pos) =>
         (case lookupSymbol(venv, sym, pos) of
-          SOME(E.VarEntry{access, ty, readOnly}) => (Translate.simpleVar(access, level); {exp=(), ty=actualType(tenv, ty)})
-        | _ => {exp=(), ty=T.UNIT})
+          SOME(E.VarEntry{access, ty, readOnly}) => {exp=Translate.simpleVar(access, level), ty=actualType(tenv, ty)}
+        | _ => {exp=Translate.TODO(), ty=T.UNIT})
 
     | A.FieldVar(var, sym, pos) =>
         (case transVar(venv, tenv, var, inLoop, level) of
@@ -260,28 +260,32 @@ struct
             let
               fun getFieldType((fieldName, fieldType) :: tail) =
                     if fieldName = sym then
-                      {exp=(), ty=actualType(tenv, fieldType)}
+                      {exp=Translate.TODO(), ty=actualType(tenv, fieldType)}
                     else
                       getFieldType(tail)
 
                 | getFieldType(nil) = (
                     error pos ("Field " ^ S.name(sym) ^ " does not exist");
-                    {exp=(), ty=T.TOP})
+                    {exp=Translate.TODO(), ty=T.TOP})
             in
               getFieldType(fieldList)
             end
 
         | _ => (
           error pos (S.name(sym) ^ " is not a record type");
-          {exp=(), ty=T.TOP}))
+          {exp=Translate.TODO(), ty=T.TOP}))
 
     | A.SubscriptVar(var, exp, pos) =>
-        (checkInt("Array index: ", transExp(venv, tenv, inLoop, level) exp, pos);
-        case transVar(venv, tenv, var, inLoop, level) of
-          {exp=_, ty=T.ARRAY(ty, unique)} => {exp=(), ty=actualType(tenv, ty)}
+        let
+          val {exp=idxExp, ty=idxTy} = transExp(venv, tenv, inLoop, level) exp
+        in
+          (checkInt("Array index: ", {exp=idxExp, ty=idxTy}, pos);
+          case transVar(venv, tenv, var, inLoop, level) of
+            {exp=varExp, ty=T.ARRAY(ty, unique)} => {exp=Translate.arrayVar(varExp, idxExp, level), ty=actualType(tenv, ty)}
         
-        | _ => (error pos "Cannot subscript a non-array type";
-          {exp=(), ty=T.TOP}))
+          | _ => (error pos "Cannot subscript a non-array type";
+            {exp=Translate.TODO(), ty=T.TOP}))
+        end
 
 
   (*
@@ -415,13 +419,13 @@ struct
   and transExp(venv, tenv, inLoop, level) : A.exp -> expty =
     let
       fun trexp(A.IntExp(intVal)) : expty =
-            {exp=(), ty=T.INT}
+            {exp=Translate.intExp(intVal), ty=T.INT}
         
       | trexp(A.StringExp(stringVal, pos)) =
-          {exp=(), ty=T.STRING}
+          {exp=Translate.TODO(), ty=T.STRING}
 
       | trexp(A.NilExp) =
-          {exp=(), ty=T.NIL}
+          {exp=Translate.TODO(), ty=T.NIL}
 
       | trexp(A.ArrayExp{typ, size, init, pos}) =
           let
@@ -435,7 +439,7 @@ struct
           in
             (checkInt("Array size: ", trexp size, pos);
              checkDeclaredType(arraySubtype, initType, pos); 
-            {exp=(), ty=Option.getOpt(declaredType, T.TOP)})
+            {exp=Translate.TODO(), ty=Option.getOpt(declaredType, T.TOP)})
           end
         
       | trexp(A.OpExp{left, oper, right, pos}) =
@@ -443,19 +447,21 @@ struct
             (A.PlusOp | A.MinusOp | A.TimesOp | A.DivideOp) =>
               (checkInt("", trexp left, pos);
                checkInt("", trexp right, pos);
-               {exp=(), ty=T.INT})
+               {exp=Translate.TODO(), ty=T.INT})
           | (A.LtOp | A.LeOp | A.GtOp | A.GeOp) =>
               (checkCompOpTypes((trexp left), (trexp right), pos);
-              {exp=(), ty=T.INT})
+              {exp=Translate.TODO(), ty=T.INT})
 
           | (A.EqOp | A.NeqOp) =>
               (checkEqualOpTypes((trexp left), (trexp right), pos);
-               {exp=(), ty=T.INT}))
+               {exp=Translate.TODO(), ty=T.INT}))
 
       | trexp(A.SeqExp(expPosList)) =
           let val typeList = map (fn (exp, _) => trexp exp) expPosList
           in
-            if typeList = nil then {exp=(), ty=T.UNIT} else (List.last typeList)
+            case (typeList) of
+              nil => {exp=Translate.TODO(), ty=T.UNIT}
+            | _ => (List.last typeList)
           end
 
       | trexp(A.LetExp{decs, body, pos}) = 
@@ -484,18 +490,18 @@ struct
             val argTypes = map (fn ({exp, ty}) => ty) argExptys
           in
             (checkArgumentTypes(paramTypes, argTypes, pos);
-            {exp=(), ty=resultType})
+            {exp=Translate.TODO(), ty=resultType})
           end
 
       | trexp(A.AssignExp{var, exp, pos}) =
           (checkWritable(venv, var);
            checkAssignmentTypes(transVar(venv, tenv, var, inLoop, level), trexp exp, pos);
-          {exp=(), ty=T.UNIT})
+          {exp=Translate.TODO(), ty=T.UNIT})
 
       | trexp(A.IfExp{test, then', else'=NONE, pos}) =
           (checkInt("If test expression: ", trexp test, pos);
            checkUnit("If body expression: ", trexp then', pos);
-          {exp=(), ty=T.UNIT})
+          {exp=Translate.TODO(), ty=T.UNIT})
 
       | trexp(A.IfExp{test, then', else'=SOME(antecedent), pos}) =
           let
@@ -504,7 +510,7 @@ struct
           in
             (checkInt("If test expression: ", trexp test, pos);
              checkIfThenElseTypes(consTy, antTy, pos);
-            {exp=(), ty=T.join(consTy, antTy)})
+            {exp=Translate.TODO(), ty=T.join(consTy, antTy)})
           end
 
       | trexp(A.ForExp{var, escape, lo, hi, body, pos}) = 
@@ -515,13 +521,13 @@ struct
             (checkInt("For lo expression: ", trexp lo, pos);
              checkInt("For hi expression: ", trexp hi, pos);
              checkUnit("For body expression: ", transExp(venv', tenv, true, level) body, pos);
-            {exp=(), ty=T.UNIT})
+            {exp=Translate.TODO(), ty=T.UNIT})
           end
 
       | trexp(A.WhileExp{test, body, pos}) = 
           (checkInt("While test expression: ", trexp test, pos);
            checkUnit("While body expression: ", transExp(venv, tenv, true, level) body, pos);
-          {exp=(), ty=T.UNIT})
+          {exp=Translate.TODO(), ty=T.UNIT})
 
       | trexp(A.RecordExp{fields=fieldList, typ, pos}) =
           let
@@ -530,7 +536,7 @@ struct
               Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP))
 
             fun getFieldType(symbol, exp, pos) =
-              let val {exp=(), ty=fieldTy} = trexp exp
+              let val {exp=_, ty=fieldTy} = trexp exp
               in
                 (symbol, fieldTy)
               end
@@ -538,15 +544,15 @@ struct
             val fieldTypeList = map getFieldType fieldList
           in
             (checkRecordType(recordType, fieldTypeList, pos);
-              {exp=(), ty=recordType})
+              {exp=Translate.TODO(), ty=recordType})
           end
 
       | trexp(A.BreakExp(pos)) = 
           (if not inLoop then error pos "Illegal break, must be within a for or while loop"
            else ();
-           {exp=(), ty=T.BREAK})
+           {exp=Translate.TODO(), ty=T.BREAK})
 
-      fun trexpLoop(A.BreakExp(pos)) = {exp=(), ty=T.BREAK}
+      fun trexpLoop(A.BreakExp(pos)) = {exp=Translate.TODO(), ty=T.BREAK}
         | trexpLoop(exp) = trexp(exp)
 
       in if inLoop then trexpLoop else trexp

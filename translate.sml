@@ -13,6 +13,12 @@ sig
 
   (* IR Translation *)
   val simpleVar: access * level -> exp
+  val arrayVar: exp * exp * level -> exp
+
+  val intExp: int -> exp
+
+  (* Dummy value to allow for testing with an incomplete implementation *)
+  val TODO: unit -> exp
 
 end
 
@@ -125,5 +131,19 @@ struct
       Ex(simpleVarAccum(curLevel, T.TEMP(Frame.FP)))
     end
 
+  fun arrayVar(varExp, idxExp, lev) =
+    Ex(T.MEM(T.BINOP(
+      T.PLUS,
+      unEx varExp,
+      T.BINOP(
+        T.MUL,
+        unEx idxExp,
+        T.CONST (Frame.wordSize)))))
+
+
+
+  fun intExp(intVal) = Ex(T.CONST intVal)
+
+  fun TODO() = Ex(T.CONST 0)
 
 end
