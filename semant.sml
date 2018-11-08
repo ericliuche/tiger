@@ -291,8 +291,7 @@ struct
     let
       val label = Temp.newlabel()
       val formalEscapes = map (fn ({name, escape, typ, pos}) => !escape) params
-      val newLevel = Translate.newLevel{parent=level, name=label, formals=formalEscapes}
-      val formalAccesses = Translate.formals(newLevel)
+      val formalAccesses = Translate.formals(level)
 
       fun getParamTypes(({name, escape, typ, pos}, access)) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP), access)
       val params' = map getParamTypes (ListPair.zip (params, formalAccesses))
@@ -301,7 +300,7 @@ struct
       fun addParamToBodyVenv((name, ty, access), curVenv) = S.enter(curVenv, name, E.VarEntry{access=access, ty=ty, readOnly=false})
       val bodyVenv = foldl addParamToBodyVenv venv params'
 
-      val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop, newLevel) body
+      val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop, level) body
 
       val returnType = checkFunctionDeclaredType(
         Option.mapPartial (fn (symbol, pos) => lookupSymbol(tenv, symbol, pos)) (result),
@@ -391,6 +390,8 @@ struct
 
           val headers = map getHeaderInfo decList
 
+          val newLevels = map (fn (_, _, _, _, newLevel) => newLevel) headers
+
           val namesAndPos = map (fn ({name, params, result, body, pos}) => (name, pos)) decList
 
           fun createHeaderEnv((name, formals, result, label, level), curVenv) =
@@ -399,11 +400,11 @@ struct
           val headerEnv = foldl createHeaderEnv venv headers
 
           (* Add the functions to the actual environments *)
-          fun createEnv(functionDec, {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, false, level)
+          fun createEnv((functionDec, newLevel), {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, false, newLevel)
 
         in
           (checkUnique(namesAndPos, S.empty);
-           foldl createEnv {venv=venv, tenv=tenv} decList)
+           foldl createEnv {venv=venv, tenv=tenv} (ListPair.zip (decList, newLevels)))
         end
 
 

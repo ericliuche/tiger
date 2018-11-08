@@ -13,7 +13,7 @@ struct
       A.SimpleVar(sym, pos) => (
         case S.look(env, sym) of
           SOME((depth, esc)) =>
-            if (depth < d) then (esc := true) else ()
+            if (depth < d) then esc := true else ()
         | NONE => ())
 
     | A.FieldVar(var, sym, pos) => traverseVar(env, d, var)
