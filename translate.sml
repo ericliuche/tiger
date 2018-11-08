@@ -122,8 +122,7 @@ struct
 
       val result = simpleVarAccum(curLevel, T.TEMP(Frame.FP))
     in
-      (Printtree.printtree (TextIO.stdOut, T.EXP(result));
-        Ex(simpleVarAccum(curLevel, T.TEMP(Frame.FP))))
+      Ex(simpleVarAccum(curLevel, T.TEMP(Frame.FP)))
     end
 
 

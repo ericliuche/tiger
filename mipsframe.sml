@@ -36,7 +36,7 @@ struct
 
   fun allocLocal({name: Temp.label, formals: access list, numLocals: int ref}) =
     let
-      fun alloc(true)  = (numLocals := !numLocals + 1; InFrame(0 - (!numLocals - 1) * wordSize))
+      fun alloc(true)  = (numLocals := !numLocals + 1; InFrame(0 - !numLocals * wordSize))
         | alloc(false) = InReg(Temp.newtemp())
     in
       alloc
