@@ -18,6 +18,9 @@ sig
   val intExp: int -> exp
 
   val arithExp: exp * Absyn.oper * exp -> exp
+  val compExp: exp * Absyn.oper * exp -> exp
+
+  val expSeq: exp list -> exp
 
   (* Dummy value to allow for testing with an incomplete implementation *)
   val TODO: unit -> exp
@@ -113,8 +116,10 @@ struct
 
 
   (* Debugging utility to print an exp and return it *)
-  fun printTree(exp) =
-    (Printtree.printtree(TextIO.stdOut, unNx exp); exp)
+  fun printTree(exp as Cx(genstm)) =
+        (Printtree.printtree(TextIO.stdOut, genstm(Temp.namedlabel("true"), Temp.namedlabel("false"))); exp)
+    | printTree(exp) =
+        (Printtree.printtree(TextIO.stdOut, unNx exp); exp)
 
 
   fun simpleVar(varAcc as (varLevel, varFrameAccess), curLevel) =
@@ -162,9 +167,34 @@ struct
       | A.DivideOp => T.DIV
       | _ => raise IllegalProgramException
     in
-      printTree(Ex(T.BINOP(binop, unEx leftExp, unEx rightExp)))
+      Ex(T.BINOP(binop, unEx leftExp, unEx rightExp))
     end
 
+  fun compExp(leftExp, oper, rightExp) =
+    let
+      val relop = case oper of
+        A.EqOp  => T.EQ
+      | A.NeqOp => T.NE
+      | A.LtOp  => T.LT
+      | A.LeOp  => T.LE
+      | A.GtOp  => T.GT
+      | A.GeOp  => T.GE
+      | _     => raise IllegalProgramException
+    in
+      Cx(fn (t, f) => T.CJUMP(relop, unEx leftExp, unEx rightExp, t, f))
+    end
+
+  fun expSeq(exp :: nil) = exp
+    | expSeq(nil) = raise EmptySeqException
+    | expSeq(stm :: rest) =
+        let
+          (* Accumulate all stms into one seq, and then return an eseq with the last expression *)
+          fun seqAcc(e, nil) = e
+            | seqAcc(stmSeq, exp :: nil) = Ex(T.ESEQ(unNx stmSeq, unEx exp))
+            | seqAcc(stmSeq, nextStm :: rest) = seqAcc(Nx(T.SEQ(unNx stmSeq, unNx nextStm)), rest)
+        in
+          printTree(seqAcc(stm, rest))
+        end
 
   fun TODO() = Ex(T.CONST 0)
 

@@ -454,19 +454,22 @@ struct
                  {exp=Translate.arithExp(leftExp, oper, rightExp), ty=T.INT})
             | (A.LtOp | A.LeOp | A.GtOp | A.GeOp) =>
                 (checkCompOpTypes(leftResult, rightResult, pos);
-                {exp=Translate.TODO(), ty=T.INT})
+                {exp=Translate.compExp(leftExp, oper, rightExp), ty=T.INT})
 
             | (A.EqOp | A.NeqOp) =>
                 (checkEqualOpTypes(leftResult, rightResult, pos);
-                {exp=Translate.TODO(), ty=T.INT})
+                {exp=Translate.compExp(leftExp, oper, rightExp), ty=T.INT})
           end
 
       | trexp(A.SeqExp(expPosList)) =
-          let val typeList = map (fn (exp, _) => trexp exp) expPosList
+          let
+            val typeList = map (fn (exp, _) => trexp exp) expPosList
+            fun getTy({exp, ty}) = ty
+            fun getExp({exp, ty}) = exp
           in
             case (typeList) of
               nil => {exp=Translate.TODO(), ty=T.UNIT}
-            | _ => (List.last typeList)
+            | _ =>   {exp=Translate.expSeq(map getExp typeList), ty=getTy (List.last typeList)}
           end
 
       | trexp(A.LetExp{decs, body, pos}) = 
