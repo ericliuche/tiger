@@ -3,6 +3,8 @@ sig
   type frame
   type access
 
+  val FP: Temp.temp
+
   val newFrame: {name: Temp.label, formals: bool list} -> frame
 
   val name: frame -> Temp.label
@@ -11,6 +13,8 @@ sig
   val allocLocal: frame -> bool -> access
 
   val wordSize: int
+
+  val exp: access -> Tree.exp -> Tree.exp
 
 end
 
@@ -23,6 +27,7 @@ struct
 
   type frame = {name: Temp.label, formals: access list, numLocals: int ref}
 
+  val FP = Temp.newtemp()
   val wordSize = 4
 
   fun name({name: Temp.label, formals: access list, numLocals: int ref}) = name
@@ -54,5 +59,10 @@ struct
     in
       {name=name, formals=map allocFormal formals, numLocals=ref 0}
     end
-    
+
+
+  structure T = Tree
+  
+  fun exp(InReg(temp)) = (fn (exp) => T.TEMP temp)
+    | exp(InFrame(offset)) = (fn (exp) => T.MEM(T.BINOP(T.PLUS, exp, T.CONST offset)))
 end

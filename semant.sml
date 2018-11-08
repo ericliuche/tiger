@@ -251,7 +251,7 @@ struct
     case var of
       A.SimpleVar(sym, pos) =>
         (case lookupSymbol(venv, sym, pos) of
-          SOME(E.VarEntry{access, ty, readOnly}) => {exp=(), ty=actualType(tenv, ty)}
+          SOME(E.VarEntry{access, ty, readOnly}) => (Translate.simpleVar(access, level); {exp=(), ty=actualType(tenv, ty)})
         | _ => {exp=(), ty=T.UNIT})
 
     | A.FieldVar(var, sym, pos) =>

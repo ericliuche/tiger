@@ -17,6 +17,8 @@ temp.sig
 temp.sml
 mipsframe.sml
 translate.sml
+tree.sml
+printtree.sml
 $/ml-yacc-lib.cm
 $/smlnj-lib.cm
 $/basis.cm
