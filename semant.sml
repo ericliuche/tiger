@@ -507,18 +507,24 @@ struct
           {exp=Translate.TODO(), ty=T.UNIT})
 
       | trexp(A.IfExp{test, then', else'=NONE, pos}) =
-          (checkInt("If test expression: ", trexp test, pos);
-           checkUnit("If body expression: ", trexp then', pos);
-          {exp=Translate.TODO(), ty=T.UNIT})
+          let
+            val testResult as {exp=testExp, ty=testTy} = trexp test
+            val thenResult as {exp=thenExp, ty=thenTy} = trexp then'
+          in
+            (checkInt("If test expression: ", testResult, pos);
+             checkUnit("If body expression: ", thenResult, pos);
+             {exp=Translate.ifExp(testExp, thenExp, NONE), ty=T.UNIT})
+          end
 
       | trexp(A.IfExp{test, then', else'=SOME(antecedent), pos}) =
           let
-            val {exp=_, ty=consTy} = trexp then'
-            val {exp=_, ty=antTy} = trexp antecedent
+            val testResult as {exp=testExp, ty=testTy} = trexp test
+            val {exp=consExp, ty=consTy} = trexp then'
+            val {exp=antExp, ty=antTy} = trexp antecedent
           in
-            (checkInt("If test expression: ", trexp test, pos);
+            (checkInt("If test expression: ", testResult, pos);
              checkIfThenElseTypes(consTy, antTy, pos);
-            {exp=Translate.TODO(), ty=T.join(consTy, antTy)})
+             {exp=Translate.ifExp(testExp, consExp, SOME(antExp)), ty=T.join(consTy, antTy)})
           end
 
       | trexp(A.ForExp{var, escape, lo, hi, body, pos}) = 

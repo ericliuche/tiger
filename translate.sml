@@ -20,6 +20,8 @@ sig
   val arithExp: exp * Absyn.oper * exp -> exp
   val compExp: exp * Absyn.oper * exp -> exp
 
+  val ifExp: exp * exp * exp option -> exp
+
   val expSeq: exp list -> exp
 
   (* Dummy value to allow for testing with an incomplete implementation *)
@@ -184,16 +186,109 @@ struct
       Cx(fn (t, f) => T.CJUMP(relop, unEx leftExp, unEx rightExp, t, f))
     end
 
+
+  fun ifExp(test, Nx(then'), NONE) =
+        let
+          val consequent = Temp.newlabel()
+          val join = Temp.newlabel()
+        in
+          Nx(seq[T.CJUMP(T.NE, T.CONST 0, unEx test, consequent, join),
+                 T.LABEL(consequent),
+                 then',
+                 T.LABEL(join)])
+        end
+
+    | ifExp(test, Nx(then'), SOME(Nx(else'))) =
+        let
+          val consequent = Temp.newlabel()
+          val antecedent = Temp.newlabel()
+          val join = Temp.newlabel()
+        in
+          Nx(seq[T.CJUMP(T.NE, T.CONST 0, unEx test, consequent, antecedent),
+                 T.LABEL(consequent),
+                 then',
+                 T.JUMP(T.NAME(join), [join]),
+                 T.LABEL(antecedent),
+                 else',
+                 T.LABEL(join)])
+        end
+
+    | ifExp(test, Cx(then'), SOME(Cx(else'))) =
+        let
+          val consequent = Temp.newlabel()
+          val antecedent = Temp.newlabel()
+        in
+          Cx(fn (t, f) => seq[(unCx test)(consequent, antecedent),
+                              T.LABEL(consequent),
+                              then'(t, f),
+                              T.LABEL(antecedent),
+                              else'(t, f)])
+        end
+
+    | ifExp(test, then', SOME(Cx(else'))) =
+        let
+          val consequent = Temp.newlabel()
+          val antecedent = Temp.newlabel()
+        in
+          Cx(fn (t, f) => seq[(unCx test)(consequent, antecedent),
+                              T.LABEL(consequent),
+                              T.CJUMP(T.NE, unEx then', T.CONST(0), t, f),
+                              T.LABEL(antecedent),
+                              else'(t, f)])
+        end
+
+    | ifExp(test, Cx(then'), SOME(else')) =
+        let
+          val consequent = Temp.newlabel()
+          val antecedent = Temp.newlabel()
+        in
+          Cx(fn (t, f) => seq[(unCx test)(consequent, antecedent),
+                              T.LABEL(consequent),
+                              then'(t, f),
+                              T.LABEL(antecedent),
+                              T.CJUMP(T.NE, unEx else', T.CONST(0), t, f)])
+        end
+
+    | ifExp(test, then', NONE) =
+        let
+           val join = Temp.newlabel()
+           val consequent = Temp.newlabel()
+         in
+           Nx(seq[(unCx test)(consequent, join),
+                  T.LABEL(consequent),
+                  unNx then',
+                  T.LABEL(join)])
+         end
+
+    | ifExp(test, then', SOME(else')) =
+        let
+           val join = Temp.newlabel()
+           val consequent = Temp.newlabel()
+           val antecedent = Temp.newlabel()
+           val result = Temp.newtemp()
+         in
+           Ex(T.ESEQ(seq[(unCx test)(consequent, antecedent),
+                         T.LABEL(consequent),
+                         T.MOVE(T.TEMP(result), unEx then'),
+                         T.JUMP(T.NAME(join), [join]),
+                         T.LABEL(antecedent),
+                         T.MOVE(T.TEMP(result), unEx else'),
+                         T.LABEL(join)],
+                     T.TEMP(result)))
+         end
+
+
   fun expSeq(exp :: nil) = exp
     | expSeq(nil) = raise EmptySeqException
     | expSeq(stm :: rest) =
+        (*printTree(Ex(T.ESEQ(unNx stm, unEx(expSeq rest))))*)
         let
           (* Accumulate all stms into one seq, and then return an eseq with the last expression *)
           fun seqAcc(e, nil) = e
             | seqAcc(stmSeq, exp :: nil) = Ex(T.ESEQ(unNx stmSeq, unEx exp))
             | seqAcc(stmSeq, nextStm :: rest) = seqAcc(Nx(T.SEQ(unNx stmSeq, unNx nextStm)), rest)
         in
-          printTree(seqAcc(stm, rest))
+          seqAcc(stm, rest)
         end
 
   fun TODO() = Ex(T.CONST 0)
