@@ -151,7 +151,7 @@ struct
   fun arrayVar(varExp, idxExp, lev) =
     Ex(T.MEM(T.BINOP(
       T.PLUS,
-      unEx varExp,
+      T.MEM(unEx varExp),
       T.BINOP(
         T.MUL,
         unEx idxExp,
