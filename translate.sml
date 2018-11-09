@@ -192,7 +192,7 @@ struct
           val consequent = Temp.newlabel()
           val join = Temp.newlabel()
         in
-          Nx(seq[T.CJUMP(T.NE, T.CONST 0, unEx test, consequent, join),
+          Nx(seq[(unCx test)(consequent, join),
                  T.LABEL(consequent),
                  then',
                  T.LABEL(join)])
@@ -204,7 +204,7 @@ struct
           val antecedent = Temp.newlabel()
           val join = Temp.newlabel()
         in
-          Nx(seq[T.CJUMP(T.NE, T.CONST 0, unEx test, consequent, antecedent),
+          Nx(seq[(unCx test)(consequent, antecedent),
                  T.LABEL(consequent),
                  then',
                  T.JUMP(T.NAME(join), [join]),
