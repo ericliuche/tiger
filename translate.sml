@@ -25,6 +25,7 @@ sig
   val expSeq: exp list -> exp
 
   val recordExp: exp list -> exp
+  val arrayExp: exp * exp -> exp
 
   (* Dummy value to allow for testing with an incomplete implementation *)
   val TODO: unit -> exp
@@ -300,15 +301,16 @@ struct
       fun setField(fieldExp, idx) =
         T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP(recordPtr), T.CONST(idx * (Frame.wordSize)))),
                unEx fieldExp)
-
     in
       Ex(T.ESEQ(
         seq(
           T.MOVE(T.TEMP(recordPtr),
-                 T.CALL(T.NAME(Temp.namedlabel("malloc")), [T.CONST(length(fieldList) * Frame.wordSize)]))
+                 Frame.externalCall("malloc", [T.CONST(length(fieldList) * Frame.wordSize)]))
           :: (map setField (ListPair.zip (fieldList, (List.tabulate(length(fieldList), (fn i => i))))))),
         T.TEMP(recordPtr)))
     end
+
+  fun arrayExp(size, initVal) = Ex(Frame.externalCall("initArray", [unEx size, unEx initVal]))
 
   fun TODO() = Ex(T.CONST 0)
 

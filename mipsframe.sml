@@ -16,6 +16,8 @@ sig
 
   val exp: access -> Tree.exp -> Tree.exp
 
+  val externalCall: string * Tree.exp list -> Tree.exp
+
 end
 
 (* A FRAME implementation targeting the MIPS architecture *)
@@ -65,4 +67,7 @@ struct
   
   fun exp(InReg(temp)) = (fn (exp) => T.TEMP temp)
     | exp(InFrame(offset)) = (fn (exp) => T.MEM(T.BINOP(T.PLUS, exp, T.CONST offset)))
+
+  fun externalCall(name, args) =
+    T.CALL(T.NAME(Temp.namedlabel(name)), args)
 end
