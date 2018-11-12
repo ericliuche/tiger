@@ -3,6 +3,7 @@ sig
   type level
   type access
   type exp
+  type frag
 
   (* Frame Layout *)
   val outermost: level
@@ -21,6 +22,7 @@ sig
   val stringExp: string -> exp
 
   val assignExp: exp * exp -> exp
+  val initExp: access * exp -> exp
 
   val arithExp: exp * Absyn.oper * exp -> exp
   val compExp: exp * Absyn.oper * exp -> exp
@@ -58,6 +60,8 @@ struct
                  | Outermost
 
   type access = level * Frame.access
+
+  type frag = Frame.frag
 
   val outermost = Outermost
 
@@ -195,6 +199,9 @@ struct
     end
 
   fun assignExp(var, exp) = Nx(T.MOVE(unEx var, unEx exp))
+
+  fun initExp((level, frameAccess), exp) =
+    Nx(T.MOVE(Frame.exp(frameAccess)(T.TEMP(Frame.FP)), unEx exp))
 
   fun arithExp(leftExp, oper, rightExp) =
     let
@@ -363,8 +370,8 @@ struct
           Ex(T.CALL(T.NAME funcName, getStaticLink(callerLevel) :: (map unEx argExpList)))
         end
 
-  fun letExp([], bodyExps) = Ex(unEx bodyExps)
-    | letExp(decExps, bodyExps) = Ex(T.ESEQ(seq (map unNx decExps), unEx bodyExps))
+  fun letExp([], bodyExp) = Ex(unEx bodyExp)
+    | letExp(decExps, bodyExp) = Ex(T.ESEQ(seq (map unNx decExps), unEx bodyExp))
 
   fun expSeq(exp :: nil) = exp
     | expSeq(nil) = raise EmptySeqException

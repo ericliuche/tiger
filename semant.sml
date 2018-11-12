@@ -1,4 +1,4 @@
-structure Semant: sig val transProg : Absyn.exp -> unit end =
+structure Semant: sig val transProg : Absyn.exp -> Translate.frag list end =
 struct
 
   structure A = Absyn
@@ -206,7 +206,7 @@ struct
 
 
   (* Produces an error if the given type environment has cyclical definitions *)
-  fun checkEnvCycles({venv, tenv}, names, pos) =
+  fun checkEnvCycles({venv, tenv, expList}, names, pos) =
     let
 
       fun cycle(tenv, T.NAME(sym, tyRef), seen) =
@@ -305,25 +305,27 @@ struct
       fun addParamToBodyVenv((name, ty, access), curVenv) = S.enter(curVenv, name, E.VarEntry{access=access, ty=ty, readOnly=false})
       val bodyVenv = foldl addParamToBodyVenv venv params'
 
-      val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop, level, exitLabel) body
+      val {exp=bodyExp, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop, level, exitLabel) body
 
       val returnType = checkFunctionDeclaredType(
         Option.mapPartial (fn (symbol, pos) => lookupSymbol(tenv, symbol, pos)) (result),
         bodyTy,
         pos)
     in
+      (Translate.procEntryExit({level=level, body=bodyExp});
+
       {venv=S.enter(venv, name, E.FunEntry{level=level, label=label, formals=formals, result=returnType}),
-       tenv=tenv}
+       tenv=tenv})
     end
 
   (*
     Transforms and type-checks a declaration in the given environments
   *)
-  and transDec(venv, tenv, dec, inLoop, level, exitLabel) = 
+  and transDec(venv, tenv, dec, inLoop, level, exitLabel, expList) = 
     case dec of 
        A.VarDec{name, escape, typ, init, pos} =>
         let
-          val {exp=_, ty=inferredTy} = transExp(venv, tenv, inLoop, level, exitLabel) init
+          val {exp=initExp, ty=inferredTy} = transExp(venv, tenv, inLoop, level, exitLabel) init
 
           val declaredTyOpt =
             Option.mapPartial
@@ -338,7 +340,8 @@ struct
             (NONE, T.NIL) => error pos "Unknown type of nil variable"
           |  _ => ();
           {venv=S.enter(venv, name, E.VarEntry{access=access, ty=variableType, readOnly=false}),
-           tenv=tenv})
+           tenv=tenv,
+           expList=(Translate.initExp(access, initExp) :: expList)})
         end
 
     | A.TypeDec(decList) =>
@@ -367,7 +370,7 @@ struct
               end
 
           val {name=_, ty=_, pos=startPos} = hd(decList)
-          val env = {venv=venv, tenv= foldl addToTenv tenv decList}
+          val env = {venv=venv, tenv= foldl addToTenv tenv decList, expList=expList}
         in
           (checkEnvCycles(env, names, startPos);
           env)
@@ -407,9 +410,11 @@ struct
           (* Add the functions to the actual environments *)
           fun createEnv((functionDec, newLevel), {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, false, newLevel, exitLabel)
 
+          val {venv=newVenv, tenv=newTenv} = foldl createEnv {venv=venv, tenv=tenv} (ListPair.zip (decList, newLevels))
+
         in
           (checkUnique(namesAndPos, S.empty);
-           foldl createEnv {venv=venv, tenv=tenv} (ListPair.zip (decList, newLevels)))
+           {venv=newVenv, tenv=newTenv, expList=expList})
         end
 
 
@@ -423,7 +428,7 @@ struct
             {exp=Translate.intExp(intVal), ty=T.INT}
         
       | trexp(A.StringExp(stringVal, pos)) =
-          {exp=Translate.TODO(), ty=T.STRING}
+          {exp=Translate.stringExp(stringVal), ty=T.STRING}
 
       | trexp(A.NilExp) =
           {exp=Translate.nilExp(), ty=T.NIL}
@@ -474,13 +479,19 @@ struct
           end
 
       | trexp(A.LetExp{decs, body, pos}) = 
-          let val {venv=venv, tenv=tenv} = 
-            foldl 
-              (fn (dec, {venv=curVenv, tenv=curTenv}) => transDec(curVenv, curTenv, dec, inLoop, level, exitLabel))
-              ({venv=venv, tenv=tenv})
-              (decs)
+          let
+            val {venv=venv, tenv=tenv, expList=expList} = 
+              foldl 
+                (fn (dec, {venv=curVenv, tenv=curTenv, expList=curExpList}) =>
+                    transDec(curVenv, curTenv, dec, inLoop, level, exitLabel, curExpList))
+                ({venv=venv, tenv=tenv, expList=[]})
+                (decs)
+
+            val bodyResult as {exp=bodyExp, ty=bodyTy} =
+              transExp(venv, tenv, inLoop, level, exitLabel) body
+
           in 
-            transExp(venv, tenv, inLoop, level, exitLabel) body
+            {exp=Translate.letExp(rev expList, bodyExp), ty=bodyTy}
           end
 
       | trexp(A.VarExp(var)) =
@@ -598,8 +609,9 @@ struct
       val mainLabel = Temp.newlabel()
       val mainLevel = Translate.newLevel{parent=Translate.outermost, name=mainLabel, formals=[]} 
       val {exp=topLevelExp, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel, mainLabel) ast)
-      val _ = Translate.procEntryExit({level=mainLevel, body=topLevelExp})
-    in ()
+    in
+      (Translate.procEntryExit({level=mainLevel, body=topLevelExp});
+       Translate.getResult())
     end)
 
 end

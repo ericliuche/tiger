@@ -75,6 +75,7 @@ struct
   structure T = Tree
   
   fun exp(InReg(temp)) = (fn (exp) => T.TEMP temp)
+    | exp(InFrame(0)) = (fn (exp) => T.MEM(exp))
     | exp(InFrame(offset)) = (fn (exp) => T.MEM(T.BINOP(T.PLUS, exp, T.CONST offset)))
 
   fun externalCall(name, args) =
