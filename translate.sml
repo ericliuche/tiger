@@ -61,7 +61,7 @@ struct
   val outermost = Outermost
 
   val frags : Frame.frag list ref = ref []
-  fun getResult() = !frags
+  fun getResult() = rev (!frags)
 
   fun newLevel({parent, name, formals}) =
     Level{parent=parent, frame=Frame.newFrame{name=name, formals=true :: formals}, unique=ref ()}
@@ -184,7 +184,7 @@ struct
   fun stringExp lit = 
     let val label = Temp.newlabel()
     in
-      frags := !frags @ [Frame.STRING(label, lit)];
+      frags := Frame.STRING(label, lit) :: !frags;
       Ex(T.NAME label)
     end
 
@@ -376,12 +376,10 @@ struct
 
   fun procEntryExit({level=Outermost, body}) = raise OutermostLevelException
     | procEntryExit({level=Level{parent, frame, unique}, body}) =
-      frags := !frags @ [
-        Frame.PROC{
+      frags := Frame.PROC{
           body=Frame.procEntryExit1(frame, T.MOVE(T.TEMP Frame.RV, unEx body)), 
           frame=frame
-        }
-      ]
+        } :: !frags
 
   fun TODO() = Ex(T.CONST 0)
 
