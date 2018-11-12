@@ -602,6 +602,9 @@ struct
     end
 
 
+  fun showIR(nil) = nil
+    | showIR(frag :: rest) = (Translate.printFrag frag; frag :: showIR(rest))
+
   (* Translates and type-checks an abstract syntax tree *)
   fun transProg ast =
     (legalAst := true;
@@ -611,7 +614,7 @@ struct
       val {exp=topLevelExp, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel, mainLabel) ast)
     in
       (Translate.procEntryExit({level=mainLevel, body=topLevelExp});
-       Translate.getResult())
+       showIR(Translate.getResult()))
     end)
 
 end

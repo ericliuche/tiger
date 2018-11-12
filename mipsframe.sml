@@ -23,6 +23,10 @@ sig
   val externalCall: string * Tree.exp list -> Tree.exp
 
   val procEntryExit1 : frame * Tree.stm -> Tree.stm
+
+  (* Debugging utility for printing a frag *)
+  val printFrag: frag -> frag
+
 end
 
 (* A FRAME implementation targeting the MIPS architecture *)
@@ -82,4 +86,9 @@ struct
     T.CALL(T.NAME(Temp.namedlabel(name)), args)
 
   fun procEntryExit1(frame, body) = body
+
+  fun printFrag(frag as PROC{body=stm, frame={name=name, formals=_, numLocals=_}}) =
+        (print "\n\n"; Printtree.printtree(TextIO.stdOut, stm); frag)
+    | printFrag(frag as STRING(label, stringVal)) =
+        (print "\n\n"; print (Symbol.name (label)); print(" = "); print(stringVal); print "\n"; frag)
 end

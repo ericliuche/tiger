@@ -47,6 +47,8 @@ sig
   (* Dummy value to allow for testing with an incomplete implementation *)
   val TODO: unit -> exp
 
+  val printFrag: frag -> frag
+
 end
 
 structure Translate: TRANSLATE = 
@@ -146,6 +148,8 @@ struct
         (Printtree.printtree(TextIO.stdOut, genstm(Temp.namedlabel("true"), Temp.namedlabel("false"))); exp)
     | printTree(exp) =
         (Printtree.printtree(TextIO.stdOut, unNx exp); exp)
+
+  fun printFrag(frag) = Frame.printFrag(frag)
 
 
   fun simpleVar(varAcc as (varLevel, varFrameAccess), curLevel) =
