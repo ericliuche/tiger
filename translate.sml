@@ -16,16 +16,25 @@ sig
   val arrayVar: exp * exp * level -> exp
 
   val intExp: int -> exp
+  val nilExp: unit -> exp
+
+  val assignExp: exp * exp -> exp
 
   val arithExp: exp * Absyn.oper * exp -> exp
   val compExp: exp * Absyn.oper * exp -> exp
 
   val ifExp: exp * exp * exp option -> exp
 
+  val whileExp: exp * exp * Temp.label -> exp
+  val forExp: access * exp * exp * exp * Temp.label -> exp
+  val breakExp: Temp.label -> exp
+  val letExp: exp list * exp -> exp
+
   val expSeq: exp list -> exp
 
   val recordExp: exp list -> exp
   val arrayExp: exp * exp -> exp
+
 
   (* Dummy value to allow for testing with an incomplete implementation *)
   val TODO: unit -> exp
@@ -163,6 +172,10 @@ struct
 
   fun intExp(intVal) = Ex(T.CONST intVal)
 
+  fun nilExp() = Ex(T.CONST 0)
+
+  fun assignExp(var, exp) = Nx(T.MOVE(unEx var, unEx exp))
+
   fun arithExp(leftExp, oper, rightExp) =
     let
       val binop = case oper of
@@ -280,6 +293,41 @@ struct
                      T.TEMP(result)))
          end
 
+  fun forExp((_, varFrameAccess), loExp, hiExp, bodyExp, exitLabel) =
+    let
+        val testVar = Frame.exp(varFrameAccess)(T.TEMP Frame.FP)
+        val hiVar = Temp.newtemp()
+        val body = Temp.newlabel()
+        val inc = Temp.newlabel()
+    in
+        Nx(seq[T.MOVE(testVar, unEx loExp),
+               T.MOVE(T.TEMP hiVar, unEx hiExp), 
+               T.CJUMP(T.LE, testVar, T.TEMP hiVar, body, exitLabel),
+               T.LABEL body, 
+               unNx bodyExp,
+               T.CJUMP(T.LT, testVar, T.TEMP hiVar, inc, exitLabel),
+               T.LABEL inc,
+               T.MOVE(testVar, T.BINOP(T.PLUS, testVar, T.CONST 1)),
+               T.JUMP(T.NAME body, [body]),
+               T.LABEL exitLabel])
+    end
+
+  fun whileExp(testExp, bodyExp, exitLabel) =
+      let 
+          val test = Temp.newlabel()
+          val body = Temp.newlabel()
+      in
+          Nx(seq[T.LABEL test, (unCx testExp)(body, exitLabel), 
+                 T.LABEL body, 
+                 unNx bodyExp, 
+                 T.JUMP(T.NAME test, [test]),
+                 T.LABEL exitLabel])
+      end
+
+  fun breakExp exitLabel = Nx(T.JUMP(T.NAME exitLabel, [exitLabel]))
+
+  fun letExp([], bodyExps) = Ex(unEx bodyExps)
+    | letExp(decExps, bodyExps) = Ex(T.ESEQ(seq (map unNx decExps), unEx bodyExps))
 
   fun expSeq(exp :: nil) = exp
     | expSeq(nil) = raise EmptySeqException

@@ -247,7 +247,7 @@ struct
   (*
     Transforms and type-checks a variable
   *)
-  fun transVar(venv, tenv, var, inLoop, level) : expty =
+  fun transVar(venv, tenv, var, inLoop, level, exitLabel) : expty =
     case var of
       A.SimpleVar(sym, pos) =>
         (case lookupSymbol(venv, sym, pos) of
@@ -255,7 +255,7 @@ struct
         | _ => {exp=Translate.TODO(), ty=T.UNIT})
 
     | A.FieldVar(var, sym, pos) =>
-        (case transVar(venv, tenv, var, inLoop, level) of
+        (case transVar(venv, tenv, var, inLoop, level, exitLabel) of
           {exp=_, ty=T.RECORD(fieldList, unique)} =>
             let
               fun getFieldType((fieldName, fieldType) :: tail) =
@@ -277,10 +277,10 @@ struct
 
     | A.SubscriptVar(var, exp, pos) =>
         let
-          val {exp=idxExp, ty=idxTy} = transExp(venv, tenv, inLoop, level) exp
+          val {exp=idxExp, ty=idxTy} = transExp(venv, tenv, inLoop, level, exitLabel) exp
         in
           (checkInt("Array index: ", {exp=idxExp, ty=idxTy}, pos);
-          case transVar(venv, tenv, var, inLoop, level) of
+          case transVar(venv, tenv, var, inLoop, level, exitLabel) of
             {exp=varExp, ty=T.ARRAY(ty, unique)} => {exp=Translate.arrayVar(varExp, idxExp, level), ty=actualType(tenv, ty)}
         
           | _ => (error pos "Cannot subscript a non-array type";
@@ -291,7 +291,7 @@ struct
   (*
     Transforms and type-checks a function declaration in the given environments
   *)
-  and transFuncDec(venv, tenv, {name, params, result, body, pos}, inLoop, level) =
+  and transFuncDec(venv, tenv, {name, params, result, body, pos}, inLoop, level, exitLabel) =
     let
       val label = Temp.newlabel()
       val formalEscapes = map (fn ({name, escape, typ, pos}) => !escape) params
@@ -304,7 +304,7 @@ struct
       fun addParamToBodyVenv((name, ty, access), curVenv) = S.enter(curVenv, name, E.VarEntry{access=access, ty=ty, readOnly=false})
       val bodyVenv = foldl addParamToBodyVenv venv params'
 
-      val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop, level) body
+      val {exp=_, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop, level, exitLabel) body
 
       val returnType = checkFunctionDeclaredType(
         Option.mapPartial (fn (symbol, pos) => lookupSymbol(tenv, symbol, pos)) (result),
@@ -318,11 +318,11 @@ struct
   (*
     Transforms and type-checks a declaration in the given environments
   *)
-  and transDec(venv, tenv, dec, inLoop, level) = 
+  and transDec(venv, tenv, dec, inLoop, level, exitLabel) = 
     case dec of 
        A.VarDec{name, escape, typ, init, pos} =>
         let
-          val {exp=_, ty=inferredTy} = transExp(venv, tenv, inLoop, level) init
+          val {exp=_, ty=inferredTy} = transExp(venv, tenv, inLoop, level, exitLabel) init
 
           val declaredTyOpt =
             Option.mapPartial
@@ -404,7 +404,7 @@ struct
           val headerEnv = foldl createHeaderEnv venv headers
 
           (* Add the functions to the actual environments *)
-          fun createEnv((functionDec, newLevel), {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, false, newLevel)
+          fun createEnv((functionDec, newLevel), {venv, tenv}) = transFuncDec(headerEnv, tenv, functionDec, false, newLevel, exitLabel)
 
         in
           (checkUnique(namesAndPos, S.empty);
@@ -416,7 +416,7 @@ struct
     Produces a transformation function which type-checks an expression with the given
     environments
   *)
-  and transExp(venv, tenv, inLoop, level) : A.exp -> expty =
+  and transExp(venv, tenv, inLoop, level, exitLabel) : A.exp -> expty =
     let
       fun trexp(A.IntExp(intVal)) : expty =
             {exp=Translate.intExp(intVal), ty=T.INT}
@@ -425,7 +425,7 @@ struct
           {exp=Translate.TODO(), ty=T.STRING}
 
       | trexp(A.NilExp) =
-          {exp=Translate.TODO(), ty=T.NIL}
+          {exp=Translate.nilExp(), ty=T.NIL}
 
       | trexp(A.ArrayExp{typ, size, init, pos}) =
           let
@@ -475,15 +475,15 @@ struct
       | trexp(A.LetExp{decs, body, pos}) = 
           let val {venv=venv, tenv=tenv} = 
             foldl 
-              (fn (dec, {venv=curVenv, tenv=curTenv}) => transDec(curVenv, curTenv, dec, inLoop, level))
+              (fn (dec, {venv=curVenv, tenv=curTenv}) => transDec(curVenv, curTenv, dec, inLoop, level, exitLabel))
               ({venv=venv, tenv=tenv})
               (decs)
           in 
-            transExp(venv, tenv, inLoop, level) body
+            transExp(venv, tenv, inLoop, level, exitLabel) body
           end
 
       | trexp(A.VarExp(var)) =
-          transVar(venv, tenv, var, inLoop, level)
+          transVar(venv, tenv, var, inLoop, level, exitLabel)
 
       | trexp(A.CallExp{func, args, pos}) =
           let
@@ -502,9 +502,14 @@ struct
           end
 
       | trexp(A.AssignExp{var, exp, pos}) =
-          (checkWritable(venv, var);
-           checkAssignmentTypes(transVar(venv, tenv, var, inLoop, level), trexp exp, pos);
-          {exp=Translate.TODO(), ty=T.UNIT})
+          let
+            val varResult as {exp=varExp, ty=varTy} = transVar(venv, tenv, var, inLoop, level, exitLabel)
+            val expResult as {exp=expExp, ty=expTy} = trexp exp
+          in
+            (checkWritable(venv, var);
+             checkAssignmentTypes(varResult, expResult, pos);
+            {exp=Translate.assignExp(varExp, expExp), ty=T.UNIT})
+          end
 
       | trexp(A.IfExp{test, then', else'=NONE, pos}) =
           let
@@ -530,18 +535,28 @@ struct
       | trexp(A.ForExp{var, escape, lo, hi, body, pos}) = 
           let 
             val access = Translate.allocLocal(level)(!escape)
+            val exitLabel = Temp.newlabel()
             val venv' = S.enter(venv, var, E.VarEntry{access=access, ty=T.INT, readOnly=true})
+            val loResult as {exp=loExp, ty=loTy} = trexp lo
+            val hiResult as {exp=hiExp, ty=hiTy} = trexp hi
+            val bodyResult as {exp=bodyExp, ty=bodyTy} = transExp(venv', tenv, true, level, exitLabel) body
           in 
-            (checkInt("For lo expression: ", trexp lo, pos);
-             checkInt("For hi expression: ", trexp hi, pos);
-             checkUnit("For body expression: ", transExp(venv', tenv, true, level) body, pos);
-            {exp=Translate.TODO(), ty=T.UNIT})
+            (checkInt("For lo expression: ", loResult, pos);
+             checkInt("For hi expression: ", hiResult, pos);
+             checkUnit("For body expression: ", bodyResult, pos);
+            {exp=Translate.forExp(access, loExp, hiExp, bodyExp, exitLabel), ty=T.UNIT})
           end
 
       | trexp(A.WhileExp{test, body, pos}) = 
-          (checkInt("While test expression: ", trexp test, pos);
-           checkUnit("While body expression: ", transExp(venv, tenv, true, level) body, pos);
-          {exp=Translate.TODO(), ty=T.UNIT})
+          let
+            val exitLabel = Temp.newlabel()
+            val testResult as {exp=testExp, ty=testTy} = trexp test
+            val bodyResult as {exp=bodyExp, ty=bodyTy} = transExp(venv, tenv, true, level, exitLabel) body
+          in
+            (checkInt("While test expression: ", testResult, pos);
+             checkUnit("While body expression: ", bodyResult, pos);
+            {exp=Translate.whileExp(testExp, bodyExp, exitLabel), ty=T.UNIT})
+          end
 
       | trexp(A.RecordExp{fields=fieldList, typ, pos}) =
           let
@@ -562,11 +577,13 @@ struct
           end
 
       | trexp(A.BreakExp(pos)) = 
-          (if not inLoop then error pos "Illegal break, must be within a for or while loop"
-           else ();
-           {exp=Translate.TODO(), ty=T.BREAK})
+          if not inLoop then 
+            (error pos "Illegal break, must be within a for or while loop";
+            {exp=Translate.TODO(), ty=T.BREAK})
+          else 
+            {exp=Translate.breakExp(exitLabel), ty=T.BREAK}
 
-      fun trexpLoop(A.BreakExp(pos)) = {exp=Translate.TODO(), ty=T.BREAK}
+      fun trexpLoop(A.BreakExp(pos)) = {exp=Translate.breakExp(exitLabel), ty=T.BREAK}
         | trexpLoop(exp) = trexp(exp)
 
       in if inLoop then trexpLoop else trexp
@@ -577,8 +594,9 @@ struct
   fun transProg ast =
     (legalAst := true;
     let
-      val mainLevel = Translate.newLevel{parent=Translate.outermost, name=Temp.newlabel(), formals=[]} 
-      val {exp=_, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel) ast)
+      val mainLabel = Temp.newlabel()
+      val mainLevel = Translate.newLevel{parent=Translate.outermost, name=mainLabel, formals=[]} 
+      val {exp=_, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel, mainLabel) ast)
     in ()
     end)
 
