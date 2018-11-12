@@ -489,17 +489,19 @@ struct
       | trexp(A.CallExp{func, args, pos}) =
           let
             val funcEntry = lookupSymbol(venv, func, pos)
-            val {formals=paramTypes, result=resultType} =
+            val {formals=paramTypes, result=resultType, label=funcLabel, level=funcLevel} =
               case funcEntry of
-                SOME(E.FunEntry{level, label, formals, result}) => {formals=formals, result=result}
+                SOME(E.FunEntry{level, label, formals, result}) =>
+                      {formals=formals, result=result, label=label, level=level}
               | _ => (error pos "Unable to apply a non-function value";
-                     {formals=[], result=T.TOP})
+                     {formals=[], result=T.TOP, label=Temp.newlabel(), level=level})
 
             val argExptys = map trexp args
             val argTypes = map (fn ({exp, ty}) => ty) argExptys
+            val argExps = map (fn ({exp, ty}) => exp) argExptys
           in
             (checkArgumentTypes(paramTypes, argTypes, pos);
-            {exp=Translate.TODO(), ty=resultType})
+            {exp=Translate.callExp(func, argExps, funcLevel, level), ty=resultType})
           end
 
       | trexp(A.AssignExp{var, exp, pos}) =

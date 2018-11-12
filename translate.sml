@@ -26,11 +26,11 @@ sig
   val compExp: exp * Absyn.oper * exp -> exp
 
   val ifExp: exp * exp * exp option -> exp
-
   val whileExp: exp * exp * Temp.label -> exp
   val forExp: access * exp * exp * exp * Temp.label -> exp
   val breakExp: Temp.label -> exp
   val letExp: exp list * exp -> exp
+  val callExp: Temp.label * exp list * level * level -> exp
 
   val expSeq: exp list -> exp
 
@@ -178,10 +178,10 @@ struct
         T.CONST (Frame.wordSize)))))
 
   fun fieldVar(varExp, fieldIdx) =
-    printTree(Ex(T.MEM(T.BINOP(
+    Ex(T.MEM(T.BINOP(
       T.PLUS,
       T.MEM(unEx varExp),
-      T.CONST(fieldIdx * Frame.wordSize)))))
+      T.CONST(fieldIdx * Frame.wordSize))))
 
   fun intExp(intVal) = Ex(T.CONST intVal)
 
@@ -345,6 +345,23 @@ struct
       end
 
   fun breakExp exitLabel = Nx(T.JUMP(T.NAME exitLabel, [exitLabel]))
+
+  fun callExp(funcName, argExpList, Outermost, callerLevel) =
+        Ex(T.CALL(T.NAME funcName, map unEx argExpList))
+
+    | callExp(funcName, argExpList, Level{parent=funcParent, frame=_, unique=_}, callerLevel) =
+        let
+          fun getStaticLink(callerLevel as Level{parent=callerParent, frame=_, unique=_}) =
+            if funcParent = callerLevel then
+              T.TEMP(Frame.FP)
+            else
+              T.MEM(getStaticLink(callerParent))
+
+          | getStaticLink(Outermost) = raise OutermostLevelException
+
+        in
+          Ex(T.CALL(T.NAME funcName, getStaticLink(callerLevel) :: (map unEx argExpList)))
+        end
 
   fun letExp([], bodyExps) = Ex(unEx bodyExps)
     | letExp(decExps, bodyExps) = Ex(T.ESEQ(seq (map unNx decExps), unEx bodyExps))
