@@ -255,25 +255,26 @@ struct
         | _ => {exp=Translate.TODO(), ty=T.UNIT})
 
     | A.FieldVar(var, sym, pos) =>
-        (case transVar(venv, tenv, var, inLoop, level, exitLabel) of
-          {exp=_, ty=T.RECORD(fieldList, unique)} =>
-            let
-              fun getFieldType((fieldName, fieldType) :: tail) =
-                    if fieldName = sym then
-                      {exp=Translate.TODO(), ty=actualType(tenv, fieldType)}
-                    else
-                      getFieldType(tail)
+        let
+          val varResult = transVar(venv, tenv, var, inLoop, level, exitLabel)
 
-                | getFieldType(nil) = (
-                    error pos ("Field " ^ S.name(sym) ^ " does not exist");
-                    {exp=Translate.TODO(), ty=T.TOP})
-            in
-              getFieldType(fieldList)
-            end
+          fun getFieldType((fieldName, fieldType) :: tail, varExp, fieldIdx) =
+                if fieldName = sym then
+                  {exp=Translate.fieldVar(varExp, fieldIdx), ty=actualType(tenv, fieldType)}
+                else
+                  getFieldType(tail, varExp, fieldIdx + 1)
 
-        | _ => (
-          error pos (S.name(sym) ^ " is not a record type");
-          {exp=Translate.TODO(), ty=T.TOP}))
+            | getFieldType(nil, varExp, fieldIdx) = (
+                error pos ("Field " ^ S.name(sym) ^ " does not exist");
+                {exp=Translate.TODO(), ty=T.TOP})
+        in
+          case varResult of
+            {exp=varExp, ty=T.RECORD(fieldList, unique)} => getFieldType(fieldList, varExp, 0)
+
+          | _ => (
+            error pos (S.name(sym) ^ " is not a record type");
+            {exp=Translate.TODO(), ty=T.TOP})
+        end
 
     | A.SubscriptVar(var, exp, pos) =>
         let
@@ -281,7 +282,7 @@ struct
         in
           (checkInt("Array index: ", {exp=idxExp, ty=idxTy}, pos);
           case transVar(venv, tenv, var, inLoop, level, exitLabel) of
-            {exp=varExp, ty=T.ARRAY(ty, unique)} => {exp=Translate.arrayVar(varExp, idxExp, level), ty=actualType(tenv, ty)}
+            {exp=varExp, ty=T.ARRAY(ty, unique)} => {exp=Translate.arrayVar(varExp, idxExp), ty=actualType(tenv, ty)}
         
           | _ => (error pos "Cannot subscript a non-array type";
             {exp=Translate.TODO(), ty=T.TOP}))

@@ -13,7 +13,8 @@ sig
 
   (* IR Translation *)
   val simpleVar: access * level -> exp
-  val arrayVar: exp * exp * level -> exp
+  val arrayVar: exp * exp -> exp
+  val fieldVar: exp * int -> exp
 
   val intExp: int -> exp
   val nilExp: unit -> exp
@@ -167,7 +168,7 @@ struct
       Ex(simpleVarAccum(curLevel, T.TEMP(Frame.FP)))
     end
 
-  fun arrayVar(varExp, idxExp, lev) =
+  fun arrayVar(varExp, idxExp) =
     Ex(T.MEM(T.BINOP(
       T.PLUS,
       T.MEM(unEx varExp),
@@ -176,6 +177,11 @@ struct
         unEx idxExp,
         T.CONST (Frame.wordSize)))))
 
+  fun fieldVar(varExp, fieldIdx) =
+    printTree(Ex(T.MEM(T.BINOP(
+      T.PLUS,
+      T.MEM(unEx varExp),
+      T.CONST(fieldIdx * Frame.wordSize)))))
 
   fun intExp(intVal) = Ex(T.CONST intVal)
 
