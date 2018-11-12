@@ -577,11 +577,9 @@ struct
           end
 
       | trexp(A.BreakExp(pos)) = 
-          if not inLoop then 
-            (error pos "Illegal break, must be within a for or while loop";
-            {exp=Translate.TODO(), ty=T.BREAK})
-          else 
-            {exp=Translate.breakExp(exitLabel), ty=T.BREAK}
+          (if not inLoop then (error pos "Illegal break, must be within a for or while loop")
+           else ();
+          {exp=Translate.breakExp(exitLabel), ty=T.BREAK})
 
       fun trexpLoop(A.BreakExp(pos)) = {exp=Translate.breakExp(exitLabel), ty=T.BREAK}
         | trexpLoop(exp) = trexp(exp)
@@ -596,7 +594,8 @@ struct
     let
       val mainLabel = Temp.newlabel()
       val mainLevel = Translate.newLevel{parent=Translate.outermost, name=mainLabel, formals=[]} 
-      val {exp=_, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel, mainLabel) ast)
+      val {exp=topLevelExp, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel, mainLabel) ast)
+      val _ = Translate.procEntryExit({level=mainLevel, body=topLevelExp})
     in ()
     end)
 

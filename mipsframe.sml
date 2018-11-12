@@ -4,6 +4,7 @@ sig
   type access
 
   val FP: Temp.temp
+  val RV: Temp.temp
 
   val newFrame: {name: Temp.label, formals: bool list} -> frame
 
@@ -16,8 +17,12 @@ sig
 
   val exp: access -> Tree.exp -> Tree.exp
 
+  datatype frag = PROC of {body: Tree.stm, frame: frame}
+              | STRING of Temp.label * string
+
   val externalCall: string * Tree.exp list -> Tree.exp
 
+  val procEntryExit1 : frame * Tree.stm -> Tree.stm
 end
 
 (* A FRAME implementation targeting the MIPS architecture *)
@@ -29,7 +34,11 @@ struct
 
   type frame = {name: Temp.label, formals: access list, numLocals: int ref}
 
+  datatype frag = PROC of {body: Tree.stm, frame: frame}
+                | STRING of Temp.label * string
+
   val FP = Temp.newtemp()
+  val RV = Temp.newtemp()
   val wordSize = 4
 
   fun name({name: Temp.label, formals: access list, numLocals: int ref}) = name
@@ -70,4 +79,6 @@ struct
 
   fun externalCall(name, args) =
     T.CALL(T.NAME(Temp.namedlabel(name)), args)
+
+  fun procEntryExit1(frame, body) = body
 end

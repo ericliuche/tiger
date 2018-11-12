@@ -17,6 +17,7 @@ sig
 
   val intExp: int -> exp
   val nilExp: unit -> exp
+  val stringExp: string -> exp
 
   val assignExp: exp * exp -> exp
 
@@ -35,6 +36,10 @@ sig
   val recordExp: exp list -> exp
   val arrayExp: exp * exp -> exp
 
+  val procEntryExit : {level: level, body: exp} -> unit
+
+  structure Frame: FRAME 
+  val getResult : unit -> Frame.frag list
 
   (* Dummy value to allow for testing with an incomplete implementation *)
   val TODO: unit -> exp
@@ -55,6 +60,8 @@ struct
 
   val outermost = Outermost
 
+  val frags : Frame.frag list ref = ref []
+  fun getResult() = !frags
 
   fun newLevel({parent, name, formals}) =
     Level{parent=parent, frame=Frame.newFrame{name=name, formals=true :: formals}, unique=ref ()}
@@ -173,6 +180,13 @@ struct
   fun intExp(intVal) = Ex(T.CONST intVal)
 
   fun nilExp() = Ex(T.CONST 0)
+
+  fun stringExp lit = 
+    let val label = Temp.newlabel()
+    in
+      frags := !frags @ [Frame.STRING(label, lit)];
+      Ex(T.NAME label)
+    end
 
   fun assignExp(var, exp) = Nx(T.MOVE(unEx var, unEx exp))
 
@@ -359,6 +373,15 @@ struct
     end
 
   fun arrayExp(size, initVal) = Ex(Frame.externalCall("initArray", [unEx size, unEx initVal]))
+
+  fun procEntryExit({level=Outermost, body}) = raise OutermostLevelException
+    | procEntryExit({level=Level{parent, frame, unique}, body}) =
+      frags := !frags @ [
+        Frame.PROC{
+          body=Frame.procEntryExit1(frame, T.MOVE(T.TEMP Frame.RV, unEx body)), 
+          frame=frame
+        }
+      ]
 
   fun TODO() = Ex(T.CONST 0)
 
