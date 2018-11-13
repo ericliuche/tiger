@@ -4,10 +4,12 @@ struct
   structure A = Absyn
   structure E = Env
   structure S = Symbol
-  structure T = Types
+  structure Tp = Temp
+  structure Tr = Translate
+  structure Ty = Types
 
   (* The result type of transforming and type-checking an expression *)
-  type expty = {exp: Translate.exp, ty: T.ty}
+  type expty = {exp: Tr.exp, ty: Ty.ty}
 
   (* Tracks whether the current AST is valid *)
   val legalAst = ref true
@@ -18,34 +20,34 @@ struct
 
   (* Produces an error if the given expty is not an integer *)
   fun checkInt(message, {exp, ty}, pos) =
-    if T.isSubtype(ty, T.INT) then ()
-    else error pos (message ^ "Expected int, got " ^ (T.typeToString ty))
+    if Ty.isSubtype(ty, Ty.INT) then ()
+    else error pos (message ^ "Expected int, got " ^ (Ty.typeToString ty))
 
   (* Produces an error if the given expty is not unit type *)
   fun checkUnit(message, {exp, ty}, pos) =
-    if T.isSubtype(ty, T.UNIT) then ()
-    else error pos (message ^ "Expected unit, got " ^ (T.typeToString ty))
+    if Ty.isSubtype(ty, Ty.UNIT) then ()
+    else error pos (message ^ "Expected unit, got " ^ (Ty.typeToString ty))
 
   (* Produces an error if the given exptys cannot be used in a comparison operator *)
   fun checkCompOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
     case (tyLeft, tyRight) of
-      ((T.INT, T.INT) | (T.STRING, T.STRING)) => ()
+      ((Ty.INT, Ty.INT) | (Ty.STRING, Ty.STRING)) => ()
     | (actualLeft, actualRight) => error pos
-        ("Expected (int, int) or (string, string), got (" ^ (T.typeToString actualLeft) ^
-        ", " ^ (T.typeToString(actualRight)) ^ ")")
+        ("Expected (int, int) or (string, string), got (" ^ (Ty.typeToString actualLeft) ^
+        ", " ^ (Ty.typeToString(actualRight)) ^ ")")
 
   (* Produces an error if the given exptys cannot be used in an equality comparison *)
   fun checkEqualOpTypes({exp=_, ty=tyLeft}, {exp=_, ty=tyRight}, pos) =
-    case (T.isSubtype(tyLeft, tyRight), T.isSubtype(tyRight, tyLeft)) of
+    case (Ty.isSubtype(tyLeft, tyRight), Ty.isSubtype(tyRight, tyLeft)) of
       (false, false) =>
         error pos ("Cannot compare equality for types " ^
-          T.typeToString(tyLeft) ^ " and " ^ T.typeToString(tyRight))
+          Ty.typeToString(tyLeft) ^ " and " ^ Ty.typeToString(tyRight))
     | _ => ()
 
   (* Produces an error if the given expression cannot be assigned to the given variable *)
   fun checkAssignmentTypes({exp=_, ty=varTy}, {exp=_, ty=expTy}, pos) =
-    if not (T.isSubtype(expTy, varTy)) then
-      error pos ("Invalid assignment to type " ^ T.typeToString(varTy))
+    if not (Ty.isSubtype(expTy, varTy)) then
+      error pos ("Invalid assignment to type " ^ Ty.typeToString(varTy))
     else ()
 
   (*
@@ -53,23 +55,23 @@ struct
     are not legal
   *)
   fun checkVarDecTypes(SOME({exp=_, ty=declaredType}), {exp=_, ty=inferredType}, pos) = 
-        if not(T.isSubtype(inferredType, declaredType)) then 
-          error pos ("Expected " ^ T.typeToString(declaredType) ^
-                     ", got " ^ T.typeToString(inferredType))
+        if not(Ty.isSubtype(inferredType, declaredType)) then 
+          error pos ("Expected " ^ Ty.typeToString(declaredType) ^
+                     ", got " ^ Ty.typeToString(inferredType))
         else ()
 
     | checkVarDecTypes(NONE, {exp=_, ty=inferredType}, pos) =
-        if inferredType = T.NIL then error pos ("Unable to infer type") else ()
+        if inferredType = Ty.NIL then error pos ("Unable to infer type") else ()
 
   (*
     Produces an error if the declared and actual types disagree and returns the declared type
     if it is present or the actual type otherwise
   *)
   fun checkDeclaredType(SOME(declared), actual, pos) =
-        if not(T.isSubtype(actual, declared)) then
+        if not(Ty.isSubtype(actual, declared)) then
           (error pos ("Mismatch between declared and actual types - Expected " ^
-                      T.typeToString(declared) ^ ", got " ^ T.typeToString(actual));
-          T.TOP)
+                      Ty.typeToString(declared) ^ ", got " ^ Ty.typeToString(actual));
+          Ty.TOP)
         else
           declared
 
@@ -81,8 +83,8 @@ struct
     if a procedure has a non-unit type
   *)
   fun checkFunctionDeclaredType(NONE, actual, pos) =
-        (checkUnit("Procedure definition: ", {exp=Translate.TODO(), ty=actual}, pos);
-        T.UNIT)
+        (checkUnit("Procedure definition: ", {exp=Tr.TODO(), ty=actual}, pos);
+        Ty.UNIT)
 
     | checkFunctionDeclaredType(declaredOpt, actual, pos) =
         checkDeclaredType(declaredOpt, actual, pos)
@@ -91,7 +93,7 @@ struct
     Produces an error if the two branches do not have compatible types
   *)
   fun checkIfThenElseTypes(consTy, antTy, pos) =
-    if not(T.isSubtype(consTy, antTy)) andalso not(T.isSubtype(antTy, consTy)) then
+    if not(Ty.isSubtype(consTy, antTy)) andalso not(Ty.isSubtype(antTy, consTy)) then
       error pos "Mismatch between if-then-else branch types"
     else ()
 
@@ -101,7 +103,7 @@ struct
   *)
   fun checkTypeList(expectedList, actualList) =
     ListPair.allEq
-      (fn (expected, actual) => (T.isSubtype(actual, expected)))
+      (fn (expected, actual) => (Ty.isSubtype(actual, expected)))
       (expectedList, actualList)
 
   (*
@@ -126,7 +128,7 @@ struct
     Produces an error if the given record expression does not conform to the record type
     which it is declared to be
   *)
-  fun checkRecordType(T.RECORD(typeFields, unique), recordFields, pos) =
+  fun checkRecordType(Ty.RECORD(typeFields, unique), recordFields, pos) =
         let
           val typeFieldLength = length(typeFields)
           val recordFieldLength = length(recordFields)
@@ -159,7 +161,7 @@ struct
         end
 
     | checkRecordType(actualType, recordFields, pos) =
-        error pos ("Cannot assign a record to type " ^ T.typeToString(actualType))
+        error pos ("Cannot assign a record to type " ^ Ty.typeToString(actualType))
 
   (*
     Produces an error if all symbols in the list are not unique
@@ -191,7 +193,7 @@ struct
   *)
   fun actualType(tenv, ty) =
     case ty of
-      T.NAME(sym, tyRef) => actualType(tenv, Option.getOpt(!tyRef, T.TOP))
+      Ty.NAME(sym, tyRef) => actualType(tenv, Option.getOpt(!tyRef, Ty.TOP))
     | _ => ty
 
   (* 
@@ -209,7 +211,7 @@ struct
   fun checkEnvCycles({venv, tenv, expList}, names, pos) =
     let
 
-      fun cycle(tenv, T.NAME(sym, tyRef), seen) =
+      fun cycle(tenv, Ty.NAME(sym, tyRef), seen) =
             (case !tyRef of
               SOME(ty) => (S.contains(seen, sym)) orelse
                           (cycle(tenv, ty, S.enter(seen, sym, true)))
@@ -231,16 +233,16 @@ struct
   fun transTy(tenv, absynTy) =
     case absynTy of
       A.NameTy(sym, pos) =>
-        Option.getOpt(lookupSymbol(tenv, sym, pos), T.TOP)
+        Option.getOpt(lookupSymbol(tenv, sym, pos), Ty.TOP)
 
     | A.ArrayTy(sym, pos) =>
-        T.ARRAY(actualType(tenv, Option.getOpt(lookupSymbol(tenv, sym, pos), T.TOP)), ref ())
+        Ty.ARRAY(actualType(tenv, Option.getOpt(lookupSymbol(tenv, sym, pos), Ty.TOP)), ref ())
 
     | A.RecordTy(fieldList) =>
-        T.RECORD(
+        Ty.RECORD(
           map
             (fn ({name, escape, typ, pos}) =>
-              (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP)))
+              (name, Option.getOpt(lookupSymbol(tenv, typ, pos), Ty.TOP)))
             (fieldList),
           ref ())
 
@@ -251,8 +253,8 @@ struct
     case var of
       A.SimpleVar(sym, pos) =>
         (case lookupSymbol(venv, sym, pos) of
-          SOME(E.VarEntry{access, ty, readOnly}) => {exp=Translate.simpleVar(access, level), ty=actualType(tenv, ty)}
-        | _ => {exp=Translate.TODO(), ty=T.UNIT})
+          SOME(E.VarEntry{access, ty, readOnly}) => {exp=Tr.simpleVar(access, level), ty=actualType(tenv, ty)}
+        | _ => {exp=Tr.TODO(), ty=Ty.UNIT})
 
     | A.FieldVar(var, sym, pos) =>
         let
@@ -260,20 +262,20 @@ struct
 
           fun getFieldType((fieldName, fieldType) :: tail, varExp, fieldIdx) =
                 if fieldName = sym then
-                  {exp=Translate.fieldVar(varExp, fieldIdx), ty=actualType(tenv, fieldType)}
+                  {exp=Tr.fieldVar(varExp, fieldIdx), ty=actualType(tenv, fieldType)}
                 else
                   getFieldType(tail, varExp, fieldIdx + 1)
 
             | getFieldType(nil, varExp, fieldIdx) = (
                 error pos ("Field " ^ S.name(sym) ^ " does not exist");
-                {exp=Translate.TODO(), ty=T.TOP})
+                {exp=Tr.TODO(), ty=Ty.TOP})
         in
           case varResult of
-            {exp=varExp, ty=T.RECORD(fieldList, unique)} => getFieldType(fieldList, varExp, 0)
+            {exp=varExp, ty=Ty.RECORD(fieldList, unique)} => getFieldType(fieldList, varExp, 0)
 
           | _ => (
             error pos (S.name(sym) ^ " is not a record type");
-            {exp=Translate.TODO(), ty=T.TOP})
+            {exp=Tr.TODO(), ty=Ty.TOP})
         end
 
     | A.SubscriptVar(var, exp, pos) =>
@@ -282,10 +284,10 @@ struct
         in
           (checkInt("Array index: ", {exp=idxExp, ty=idxTy}, pos);
           case transVar(venv, tenv, var, inLoop, level, exitLabel) of
-            {exp=varExp, ty=T.ARRAY(ty, unique)} => {exp=Translate.arrayVar(varExp, idxExp), ty=actualType(tenv, ty)}
+            {exp=varExp, ty=Ty.ARRAY(ty, unique)} => {exp=Tr.arrayVar(varExp, idxExp), ty=actualType(tenv, ty)}
         
           | _ => (error pos "Cannot subscript a non-array type";
-            {exp=Translate.TODO(), ty=T.TOP}))
+            {exp=Tr.TODO(), ty=Ty.TOP}))
         end
 
 
@@ -294,11 +296,11 @@ struct
   *)
   and transFuncDec(venv, tenv, {name, params, result, body, pos}, inLoop, level, exitLabel) =
     let
-      val label = Temp.newlabel()
+      val label = Tp.newlabel()
       val formalEscapes = map (fn ({name, escape, typ, pos}) => !escape) params
-      val formalAccesses = Translate.formals(level)
+      val formalAccesses = Tr.formals(level)
 
-      fun getParamTypes(({name, escape, typ, pos}, access)) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP), access)
+      fun getParamTypes(({name, escape, typ, pos}, access)) = (name, Option.getOpt(lookupSymbol(tenv, typ, pos), Ty.TOP), access)
       val params' = map getParamTypes (ListPair.zip (params, formalAccesses))
       val formals = map (fn (name, ty, access) => ty) params'
 
@@ -312,7 +314,7 @@ struct
         bodyTy,
         pos)
     in
-      (Translate.procEntryExit({level=level, body=bodyExp});
+      (Tr.procEntryExit({level=level, body=bodyExp});
 
       {venv=S.enter(venv, name, E.FunEntry{level=level, label=label, formals=formals, result=returnType}),
        tenv=tenv})
@@ -333,26 +335,26 @@ struct
               (typ)
 
           val variableType = checkDeclaredType(declaredTyOpt, inferredTy, pos)
-          val access = Translate.allocLocal(level)(!escape)
+          val access = Tr.allocLocal(level)(!escape)
 
         in
           (case (declaredTyOpt, inferredTy) of
-            (NONE, T.NIL) => error pos "Unknown type of nil variable"
+            (NONE, Ty.NIL) => error pos "Unknown type of nil variable"
           |  _ => ();
           {venv=S.enter(venv, name, E.VarEntry{access=access, ty=variableType, readOnly=false}),
            tenv=tenv,
-           expList=(Translate.initExp(access, initExp) :: expList)})
+           expList=(Tr.initExp(access, initExp) :: expList)})
         end
 
     | A.TypeDec(decList) =>
         let
 
           (* Build environment with empty name types *)
-          val names = map (fn ({name, ty, pos}) => T.NAME(name, ref NONE)) decList
+          val names = map (fn ({name, ty, pos}) => Ty.NAME(name, ref NONE)) decList
         
           fun addToNameTenv(name, curTenv) =
             case name of
-              T.NAME(tyname, ty) => S.enter(curTenv, tyname, name)
+              Ty.NAME(tyname, ty) => S.enter(curTenv, tyname, name)
             | _ => curTenv
           
           val nameTenv = foldl addToNameTenv tenv names
@@ -364,7 +366,7 @@ struct
                 val nameEnvResult = lookupSymbol(nameTenv, name, pos)
               in
                 (case nameEnvResult of
-                  SOME(T.NAME(sym, tyRef)) => tyRef := SOME(tyResult)
+                  SOME(Ty.NAME(sym, tyRef)) => tyRef := SOME(tyResult)
                 | _ => ();
                 S.enter(curTenv, name, tyResult))
               end
@@ -380,20 +382,20 @@ struct
         let
 
           (* Create the type environment with function header information *)
-          fun getFormal({name, escape, typ, pos}) = Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP)
+          fun getFormal({name, escape, typ, pos}) = Option.getOpt(lookupSymbol(tenv, typ, pos), Ty.TOP)
 
           fun getEscape({name, escape, typ, pos}) = !escape
 
           fun getHeaderInfo({name, params, result=SOME(result, resultPos), body, pos}) =
-                let val label = Temp.newlabel() in
-                  (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), T.TOP),
-                    label, (Translate.newLevel{parent=level, name=label, formals=(map getEscape params)}))
+                let val label = Tp.newlabel() in
+                  (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), Ty.TOP),
+                    label, (Tr.newLevel{parent=level, name=label, formals=(map getEscape params)}))
                 end
             
             | getHeaderInfo({name, params, result=NONE, body, pos}) =
-                let val label = Temp.newlabel() in
-                  (name, map getFormal params, T.UNIT,
-                    label, (Translate.newLevel{parent=level, name=label, formals=(map getEscape params)}))
+                let val label = Tp.newlabel() in
+                  (name, map getFormal params, Ty.UNIT,
+                    label, (Tr.newLevel{parent=level, name=label, formals=(map getEscape params)}))
                 end
 
           val headers = map getHeaderInfo decList
@@ -425,20 +427,20 @@ struct
   and transExp(venv, tenv, inLoop, level, exitLabel) : A.exp -> expty =
     let
       fun trexp(A.IntExp(intVal)) : expty =
-            {exp=Translate.intExp(intVal), ty=T.INT}
+            {exp=Tr.intExp(intVal), ty=Ty.INT}
         
       | trexp(A.StringExp(stringVal, pos)) =
-          {exp=Translate.stringExp(stringVal), ty=T.STRING}
+          {exp=Tr.stringExp(stringVal), ty=Ty.STRING}
 
       | trexp(A.NilExp) =
-          {exp=Translate.nilExp(), ty=T.NIL}
+          {exp=Tr.nilExp(), ty=Ty.NIL}
 
       | trexp(A.ArrayExp{typ, size, init, pos}) =
           let
             fun getActualType(ty) = actualType(tenv, ty)
             val declaredType = Option.map getActualType (lookupSymbol(tenv, typ, pos))
             val arraySubtype = case declaredType of
-              SOME(T.ARRAY(ty, unique)) => SOME(ty)
+              SOME(Ty.ARRAY(ty, unique)) => SOME(ty)
             | nonarray => nonarray
 
             val initResult as {exp=initExp, ty=initType} = trexp init
@@ -446,7 +448,7 @@ struct
           in
             (checkInt("Array size: ", sizeResult, pos);
              checkDeclaredType(arraySubtype, initType, pos); 
-            {exp=Translate.arrayExp(sizeExp, initExp), ty=Option.getOpt(declaredType, T.TOP)})
+            {exp=Tr.arrayExp(sizeExp, initExp), ty=Option.getOpt(declaredType, Ty.TOP)})
           end
         
       | trexp(A.OpExp{left, oper, right, pos}) =
@@ -458,13 +460,13 @@ struct
               (A.PlusOp | A.MinusOp | A.TimesOp | A.DivideOp) =>
                 (checkInt("", leftResult, pos);
                  checkInt("", rightResult, pos);
-                {exp=Translate.arithExp(leftExp, oper, rightExp), ty=T.INT})
+                {exp=Tr.arithExp(leftExp, oper, rightExp), ty=Ty.INT})
             | (A.LtOp | A.LeOp | A.GtOp | A.GeOp) =>
                 (checkCompOpTypes(leftResult, rightResult, pos);
-                {exp=Translate.compExp(leftResult, oper, rightResult), ty=T.INT})
+                {exp=Tr.compExp(leftResult, oper, rightResult), ty=Ty.INT})
             | (A.EqOp | A.NeqOp) =>
                 (checkEqualOpTypes(leftResult, rightResult, pos);
-                {exp=Translate.compExp(leftResult, oper, rightResult), ty=T.INT})
+                {exp=Tr.compExp(leftResult, oper, rightResult), ty=Ty.INT})
           end
 
       | trexp(A.SeqExp(expPosList)) =
@@ -474,8 +476,8 @@ struct
             fun getExp({exp, ty}) = exp
           in
             case (typeList) of
-              nil => {exp=Translate.TODO(), ty=T.UNIT}
-            | _ =>   {exp=Translate.expSeq(map getExp typeList), ty=getTy (List.last typeList)}
+              nil => {exp=Tr.TODO(), ty=Ty.UNIT}
+            | _ =>   {exp=Tr.expSeq(map getExp typeList), ty=getTy (List.last typeList)}
           end
 
       | trexp(A.LetExp{decs, body, pos}) = 
@@ -491,7 +493,7 @@ struct
               transExp(venv, tenv, inLoop, level, exitLabel) body
 
           in 
-            {exp=Translate.letExp(rev expList, bodyExp), ty=bodyTy}
+            {exp=Tr.letExp(rev expList, bodyExp), ty=bodyTy}
           end
 
       | trexp(A.VarExp(var)) =
@@ -505,14 +507,14 @@ struct
                 SOME(E.FunEntry{level, label, formals, result}) =>
                       {formals=formals, result=result, label=label, level=level}
               | _ => (error pos "Unable to apply a non-function value";
-                     {formals=[], result=T.TOP, label=Temp.newlabel(), level=level})
+                     {formals=[], result=Ty.TOP, label=Tp.newlabel(), level=level})
 
             val argExptys = map trexp args
             val argTypes = map (fn ({exp, ty}) => ty) argExptys
             val argExps = map (fn ({exp, ty}) => exp) argExptys
           in
             (checkArgumentTypes(paramTypes, argTypes, pos);
-            {exp=Translate.callExp(func, argExps, funcLevel, level), ty=resultType})
+            {exp=Tr.callExp(func, argExps, funcLevel, level), ty=resultType})
           end
 
       | trexp(A.AssignExp{var, exp, pos}) =
@@ -522,7 +524,7 @@ struct
           in
             (checkWritable(venv, var);
              checkAssignmentTypes(varResult, expResult, pos);
-            {exp=Translate.assignExp(varExp, expExp), ty=T.UNIT})
+            {exp=Tr.assignExp(varExp, expExp), ty=Ty.UNIT})
           end
 
       | trexp(A.IfExp{test, then', else'=NONE, pos}) =
@@ -532,7 +534,7 @@ struct
           in
             (checkInt("If test expression: ", testResult, pos);
              checkUnit("If body expression: ", thenResult, pos);
-             {exp=Translate.ifExp(testExp, thenExp, NONE), ty=T.UNIT})
+             {exp=Tr.ifExp(testExp, thenExp, NONE), ty=Ty.UNIT})
           end
 
       | trexp(A.IfExp{test, then', else'=SOME(antecedent), pos}) =
@@ -543,14 +545,14 @@ struct
           in
             (checkInt("If test expression: ", testResult, pos);
              checkIfThenElseTypes(consTy, antTy, pos);
-             {exp=Translate.ifExp(testExp, consExp, SOME(antExp)), ty=T.join(consTy, antTy)})
+             {exp=Tr.ifExp(testExp, consExp, SOME(antExp)), ty=Ty.join(consTy, antTy)})
           end
 
       | trexp(A.ForExp{var, escape, lo, hi, body, pos}) = 
           let 
-            val access = Translate.allocLocal(level)(!escape)
-            val exitLabel = Temp.newlabel()
-            val venv' = S.enter(venv, var, E.VarEntry{access=access, ty=T.INT, readOnly=true})
+            val access = Tr.allocLocal(level)(!escape)
+            val exitLabel = Tp.newlabel()
+            val venv' = S.enter(venv, var, E.VarEntry{access=access, ty=Ty.INT, readOnly=true})
             val loResult as {exp=loExp, ty=loTy} = trexp lo
             val hiResult as {exp=hiExp, ty=hiTy} = trexp hi
             val bodyResult as {exp=bodyExp, ty=bodyTy} = transExp(venv', tenv, true, level, exitLabel) body
@@ -558,25 +560,25 @@ struct
             (checkInt("For lo expression: ", loResult, pos);
              checkInt("For hi expression: ", hiResult, pos);
              checkUnit("For body expression: ", bodyResult, pos);
-            {exp=Translate.forExp(access, loExp, hiExp, bodyExp, exitLabel), ty=T.UNIT})
+            {exp=Tr.forExp(access, loExp, hiExp, bodyExp, exitLabel), ty=Ty.UNIT})
           end
 
       | trexp(A.WhileExp{test, body, pos}) = 
           let
-            val exitLabel = Temp.newlabel()
+            val exitLabel = Tp.newlabel()
             val testResult as {exp=testExp, ty=testTy} = trexp test
             val bodyResult as {exp=bodyExp, ty=bodyTy} = transExp(venv, tenv, true, level, exitLabel) body
           in
             (checkInt("While test expression: ", testResult, pos);
              checkUnit("While body expression: ", bodyResult, pos);
-            {exp=Translate.whileExp(testExp, bodyExp, exitLabel), ty=T.UNIT})
+            {exp=Tr.whileExp(testExp, bodyExp, exitLabel), ty=Ty.UNIT})
           end
 
       | trexp(A.RecordExp{fields=fieldList, typ, pos}) =
           let
             val recordType = actualType(
               tenv,
-              Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP))
+              Option.getOpt(lookupSymbol(tenv, typ, pos), Ty.TOP))
 
             fun getFieldType(symbol, exp, pos) =
               let val {exp=fieldExp, ty=fieldTy} = trexp exp
@@ -589,15 +591,15 @@ struct
             val fieldExps = map (fn (_, _, exp) => exp) fieldTypeExpList
           in
             (checkRecordType(recordType, fieldTypeList, pos);
-              {exp=Translate.recordExp(fieldExps), ty=recordType})
+              {exp=Tr.recordExp(fieldExps), ty=recordType})
           end
 
       | trexp(A.BreakExp(pos)) = 
           (if not inLoop then (error pos "Illegal break, must be within a for or while loop")
            else ();
-          {exp=Translate.breakExp(exitLabel), ty=T.BREAK})
+          {exp=Tr.breakExp(exitLabel), ty=Ty.BREAK})
 
-      fun trexpLoop(A.BreakExp(pos)) = {exp=Translate.breakExp(exitLabel), ty=T.BREAK}
+      fun trexpLoop(A.BreakExp(pos)) = {exp=Tr.breakExp(exitLabel), ty=Ty.BREAK}
         | trexpLoop(exp) = trexp(exp)
 
       in if inLoop then trexpLoop else trexp
@@ -605,18 +607,18 @@ struct
 
 
   fun showIR(nil) = nil
-    | showIR(frag :: rest) = (Translate.printFrag frag; frag :: showIR(rest))
+    | showIR(frag :: rest) = (Tr.printFrag frag; frag :: showIR(rest))
 
   (* Translates and type-checks an abstract syntax tree *)
   fun transProg ast =
     (legalAst := true;
     let
-      val mainLabel = Temp.newlabel()
-      val mainLevel = Translate.newLevel{parent=Translate.outermost, name=mainLabel, formals=[]} 
+      val mainLabel = Tp.newlabel()
+      val mainLevel = Tr.newLevel{parent=Tr.outermost, name=mainLabel, formals=[]} 
       val {exp=topLevelExp, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel, mainLabel) ast)
     in
-      (Translate.procEntryExit({level=mainLevel, body=topLevelExp});
-       showIR(Translate.getResult()))
+      (Tr.procEntryExit({level=mainLevel, body=topLevelExp});
+       showIR(Tr.getResult()))
     end)
 
 end

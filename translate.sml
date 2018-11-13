@@ -41,8 +41,8 @@ sig
 
   val procEntryExit : {level: level, body: exp} -> unit
 
-  structure Frame: FRAME 
-  val getResult : unit -> Frame.frag list
+  structure F: FRAME 
+  val getResult : unit -> F.frag list
 
   (* Dummy value to allow for testing with an incomplete implementation *)
   val TODO: unit -> exp
@@ -56,28 +56,27 @@ struct
 
   (* Frame Layout *)
 
-  structure Frame: FRAME = MipsFrame
+  structure F = MipsFrame
 
-  datatype level = Level of {parent: level, frame: Frame.frame, unique: unit ref}
+  datatype level = Level of {parent: level, frame: F.frame, unique: unit ref}
                  | Outermost
 
-  type access = level * Frame.access
+  type access = level * F.access
 
-  type frag = Frame.frag
+  type frag = F.frag
 
   val outermost = Outermost
 
-  val frags : Frame.frag list ref = ref []
+  val frags : F.frag list ref = ref []
   fun getResult() = rev (!frags)
 
   fun newLevel({parent, name, formals}) =
-    Level{parent=parent, frame=Frame.newFrame{name=name, formals=true :: formals}, unique=ref ()}
-
+    Level{parent=parent, frame=F.newFrame{name=name, formals=true :: formals}, unique=ref ()}
 
   fun formals(level as Outermost) = []
 
     | formals(level as Level{parent, frame, unique}) =
-        case Frame.formals(frame) of
+        case F.formals(frame) of
           staticLinkOffset :: formals => map (fn formal => (level, formal)) (formals)
         | nil => nil
 
@@ -85,16 +84,18 @@ struct
 
   fun allocLocal(level as Outermost) = raise OutermostLevelException
     | allocLocal(level as Level{parent, frame, unique}) =
-        fn esc => (level, Frame.allocLocal(frame)(esc))
+        fn esc => (level, F.allocLocal(frame)(esc))
 
   (* IR Translation *)
 
   structure A = Absyn
-  structure T = Tree
+  structure Te = Tree
+  structure Tp = Temp
+  structure Ty = Types
 
-  datatype exp = Ex of T.exp
-               | Nx of T.stm
-               | Cx of Temp.label * Temp.label -> T.stm
+  datatype exp = Ex of Te.exp
+               | Nx of Te.stm
+               | Cx of Tp.label * Tp.label -> Te.stm
 
   (* Raised in cases that are impossible to reach in valid Tiger programs *)
   exception IllegalProgramException
@@ -103,53 +104,53 @@ struct
 
   (* Produces a SEQ linked list from the list of statements *)
   fun seq(s :: nil) = s
-    | seq(s :: rest) = T.SEQ(s, seq(rest))
+    | seq(s :: rest) = Te.SEQ(s, seq(rest))
     | seq(nil) = raise EmptySeqException
 
   (* Coerces the given exp into an exp used for its value *)
   fun unEx(Ex e) = e
-    | unEx(Nx s) = T.ESEQ(s, T.CONST 0)
+    | unEx(Nx s) = Te.ESEQ(s, Te.CONST 0)
     | unEx(Cx genstm) =
         let
-          val r = Temp.newtemp()
-          val t = Temp.newlabel()
-          val f = Temp.newlabel()
+          val r = Tp.newtemp()
+          val t = Tp.newlabel()
+          val f = Tp.newlabel()
         in
-          T.ESEQ(seq[T.MOVE(T.TEMP r, T.CONST 1),
+          Te.ESEQ(seq[Te.MOVE(Te.TEMP r, Te.CONST 1),
                      genstm(t, f),
-                     T.LABEL f,
-                     T.MOVE(T.TEMP r, T.CONST 0),
-                     T.LABEL t],
-                T.TEMP r)
+                     Te.LABEL f,
+                     Te.MOVE(Te.TEMP r, Te.CONST 0),
+                     Te.LABEL t],
+                Te.TEMP r)
         end
 
   (* Coerces the given exp into a stm *)
   fun unNx(Nx s) = s
-    | unNx(Ex e) = T.EXP(e)
+    | unNx(Ex e) = Te.EXP(e)
     | unNx(Cx genstm) =
         let
-          val t = Temp.newlabel()
-          val f = Temp.newlabel()
+          val t = Tp.newlabel()
+          val f = Tp.newlabel()
         in
-          seq[genstm(t, f), T.LABEL t, T.LABEL f]
+          seq[genstm(t, f), Te.LABEL t, Te.LABEL f]
         end
 
 
   (* Coerces the given exp into a conditional branching value *)
   fun unCx(Cx genstm) = genstm
-    | unCx(Nx s) = unCx(Ex(T.CONST(0))) (* Unreachable in legal Tiger program *)
-    | unCx(Ex (T.CONST 0)) = (fn (t, f) => T.JUMP(T.NAME f, [f]))
-    | unCx(Ex (T.CONST 1)) = (fn (t, f) => T.JUMP(T.NAME t, [t]))
-    | unCx(e as Ex(_)) = (fn (t, f) => T.CJUMP(T.NE, T.CONST 0, unEx e, t, f))
+    | unCx(Nx s) = unCx(Ex(Te.CONST(0))) (* Unreachable in legal Tiger program *)
+    | unCx(Ex (Te.CONST 0)) = (fn (t, f) => Te.JUMP(Te.NAME f, [f]))
+    | unCx(Ex (Te.CONST 1)) = (fn (t, f) => Te.JUMP(Te.NAME t, [t]))
+    | unCx(e as Ex(_)) = (fn (t, f) => Te.CJUMP(Te.NE, Te.CONST 0, unEx e, t, f))
 
 
   (* Debugging utility to print an exp and return it *)
   fun printTree(exp as Cx(genstm)) =
-        (Printtree.printtree(TextIO.stdOut, genstm(Temp.namedlabel("true"), Temp.namedlabel("false"))); exp)
+        (Printtree.printtree(TextIO.stdOut, genstm(Tp.namedlabel("true"), Tp.namedlabel("false"))); exp)
     | printTree(exp) =
         (Printtree.printtree(TextIO.stdOut, unNx exp); exp)
 
-  fun printFrag(frag) = Frame.printFrag(frag)
+  fun printFrag(frag) = F.printFrag(frag)
 
 
   fun simpleVar(varAcc as (varLevel, varFrameAccess), curLevel) =
@@ -160,66 +161,66 @@ struct
       val (varLevelParent, varLevelFrame, varLevelID) = unpackLevel varLevel
 
       (* Accumulates mem accesses for static links until we reach the correct level*)
-      fun simpleVarAccum(curLevel: level, accumulator: T.exp) =
+      fun simpleVarAccum(curLevel: level, accumulator: Te.exp) =
         let
           val (curLevelParent, curLevelFrame, curLevelID) = unpackLevel curLevel
-          val staticLink = hd(Frame.formals curLevelFrame)
+          val staticLink = hd(F.formals curLevelFrame)
         in
           if curLevelID = varLevelID then
-            Frame.exp(varFrameAccess)(accumulator)
+            F.exp(varFrameAccess)(accumulator)
           else
-            simpleVarAccum(curLevelParent, Frame.exp(staticLink)(accumulator))
+            simpleVarAccum(curLevelParent, F.exp(staticLink)(accumulator))
         end
 
-      val result = simpleVarAccum(curLevel, T.TEMP(Frame.FP))
+      val result = simpleVarAccum(curLevel, Te.TEMP(F.FP))
     in
-      Ex(simpleVarAccum(curLevel, T.TEMP(Frame.FP)))
+      Ex(simpleVarAccum(curLevel, Te.TEMP(F.FP)))
     end
 
   fun arrayVar(varExp, idxExp) =
-    Ex(T.MEM(T.BINOP(
-      T.PLUS,
-      T.MEM(unEx varExp),
-      T.BINOP(
-        T.MUL,
+    Ex(Te.MEM(Te.BINOP(
+      Te.PLUS,
+      Te.MEM(unEx varExp),
+      Te.BINOP(
+        Te.MUL,
         unEx idxExp,
-        T.CONST (Frame.wordSize)))))
+        Te.CONST (F.wordSize)))))
 
   fun fieldVar(varExp, fieldIdx) =
-    Ex(T.MEM(T.BINOP(
-      T.PLUS,
-      T.MEM(unEx varExp),
-      T.CONST(fieldIdx * Frame.wordSize))))
+    Ex(Te.MEM(Te.BINOP(
+      Te.PLUS,
+      Te.MEM(unEx varExp),
+      Te.CONST(fieldIdx * F.wordSize))))
 
-  fun intExp(intVal) = Ex(T.CONST intVal)
+  fun intExp(intVal) = Ex(Te.CONST intVal)
 
-  fun nilExp() = Ex(T.CONST 0)
+  fun nilExp() = Ex(Te.CONST 0)
 
   fun stringExp lit = 
-    let val label = Temp.newlabel()
+    let val label = Tp.newlabel()
     in
-      frags := Frame.STRING(label, lit) :: !frags;
-      Ex(T.NAME label)
+      frags := F.STRING(label, lit) :: !frags;
+      Ex(Te.NAME label)
     end
 
-  fun assignExp(var, exp) = Nx(T.MOVE(unEx var, unEx exp))
+  fun assignExp(var, exp) = Nx(Te.MOVE(unEx var, unEx exp))
 
   fun initExp((level, frameAccess), exp) =
-    Nx(T.MOVE(Frame.exp(frameAccess)(T.TEMP(Frame.FP)), unEx exp))
+    Nx(Te.MOVE(F.exp(frameAccess)(Te.TEMP(F.FP)), unEx exp))
 
   fun arithExp(leftExp, oper, rightExp) =
     let
       val binop = case oper of
-        A.PlusOp   => T.PLUS
-      | A.MinusOp  => T.MINUS
-      | A.TimesOp  => T.MUL
-      | A.DivideOp => T.DIV
+        A.PlusOp   => Te.PLUS
+      | A.MinusOp  => Te.MINUS
+      | A.TimesOp  => Te.MUL
+      | A.DivideOp => Te.DIV
       | _ => raise IllegalProgramException
     in
-      Ex(T.BINOP(binop, unEx leftExp, unEx rightExp))
+      Ex(Te.BINOP(binop, unEx leftExp, unEx rightExp))
     end
 
-  fun compExp({exp=leftExp, ty=Types.STRING}, oper, {exp=rightExp, ty=Types.STRING}) =
+  fun compExp({exp=leftExp, ty=Ty.STRING}, oper, {exp=rightExp, ty=Ty.STRING}) =
       let
         val funName = case oper of
             A.EqOp  => "stringEQ"
@@ -230,204 +231,204 @@ struct
           | A.GeOp  => "stringGE"
           | _     => raise IllegalProgramException
       in
-          Ex(Frame.externalCall(funName, ([unEx leftExp, unEx rightExp])))
+          Ex(F.externalCall(funName, ([unEx leftExp, unEx rightExp])))
       end
     | compExp({exp=leftExp, ty=leftTy}, oper, {exp=rightExp, ty=rightTy}) =
       let
         val relop = case oper of
-            A.EqOp  => T.EQ
-          | A.NeqOp => T.NE
-          | A.LtOp  => T.LT
-          | A.LeOp  => T.LE
-          | A.GtOp  => T.GT
-          | A.GeOp  => T.GE
+            A.EqOp  => Te.EQ
+          | A.NeqOp => Te.NE
+          | A.LtOp  => Te.LT
+          | A.LeOp  => Te.LE
+          | A.GtOp  => Te.GT
+          | A.GeOp  => Te.GE
           | _     => raise IllegalProgramException
       in
-        Cx(fn (t, f) => T.CJUMP(relop, unEx leftExp, unEx rightExp, t, f))
+        Cx(fn (t, f) => Te.CJUMP(relop, unEx leftExp, unEx rightExp, t, f))
       end
 
 
   fun ifExp(test, Nx(then'), NONE) =
         let
-          val consequent = Temp.newlabel()
-          val join = Temp.newlabel()
+          val consequent = Tp.newlabel()
+          val join = Tp.newlabel()
         in
           Nx(seq[(unCx test)(consequent, join),
-                 T.LABEL(consequent),
+                 Te.LABEL(consequent),
                  then',
-                 T.LABEL(join)])
+                 Te.LABEL(join)])
         end
 
     | ifExp(test, Nx(then'), SOME(Nx(else'))) =
         let
-          val consequent = Temp.newlabel()
-          val antecedent = Temp.newlabel()
-          val join = Temp.newlabel()
+          val consequent = Tp.newlabel()
+          val antecedent = Tp.newlabel()
+          val join = Tp.newlabel()
         in
           Nx(seq[(unCx test)(consequent, antecedent),
-                 T.LABEL(consequent),
+                 Te.LABEL(consequent),
                  then',
-                 T.JUMP(T.NAME(join), [join]),
-                 T.LABEL(antecedent),
+                 Te.JUMP(Te.NAME(join), [join]),
+                 Te.LABEL(antecedent),
                  else',
-                 T.LABEL(join)])
+                 Te.LABEL(join)])
         end
 
     | ifExp(test, Cx(then'), SOME(Cx(else'))) =
         let
-          val consequent = Temp.newlabel()
-          val antecedent = Temp.newlabel()
+          val consequent = Tp.newlabel()
+          val antecedent = Tp.newlabel()
         in
           Cx(fn (t, f) => seq[(unCx test)(consequent, antecedent),
-                              T.LABEL(consequent),
+                              Te.LABEL(consequent),
                               then'(t, f),
-                              T.LABEL(antecedent),
+                              Te.LABEL(antecedent),
                               else'(t, f)])
         end
 
     | ifExp(test, then', SOME(Cx(else'))) =
         let
-          val consequent = Temp.newlabel()
-          val antecedent = Temp.newlabel()
+          val consequent = Tp.newlabel()
+          val antecedent = Tp.newlabel()
         in
           Cx(fn (t, f) => seq[(unCx test)(consequent, antecedent),
-                              T.LABEL(consequent),
-                              T.CJUMP(T.NE, unEx then', T.CONST(0), t, f),
-                              T.LABEL(antecedent),
+                              Te.LABEL(consequent),
+                              Te.CJUMP(Te.NE, unEx then', Te.CONST(0), t, f),
+                              Te.LABEL(antecedent),
                               else'(t, f)])
         end
 
     | ifExp(test, Cx(then'), SOME(else')) =
         let
-          val consequent = Temp.newlabel()
-          val antecedent = Temp.newlabel()
+          val consequent = Tp.newlabel()
+          val antecedent = Tp.newlabel()
         in
           Cx(fn (t, f) => seq[(unCx test)(consequent, antecedent),
-                              T.LABEL(consequent),
+                              Te.LABEL(consequent),
                               then'(t, f),
-                              T.LABEL(antecedent),
-                              T.CJUMP(T.NE, unEx else', T.CONST(0), t, f)])
+                              Te.LABEL(antecedent),
+                              Te.CJUMP(Te.NE, unEx else', Te.CONST(0), t, f)])
         end
 
     | ifExp(test, then', NONE) =
         let
-           val join = Temp.newlabel()
-           val consequent = Temp.newlabel()
+           val join = Tp.newlabel()
+           val consequent = Tp.newlabel()
          in
            Nx(seq[(unCx test)(consequent, join),
-                  T.LABEL(consequent),
+                  Te.LABEL(consequent),
                   unNx then',
-                  T.LABEL(join)])
+                  Te.LABEL(join)])
          end
 
     | ifExp(test, then', SOME(else')) =
         let
-           val join = Temp.newlabel()
-           val consequent = Temp.newlabel()
-           val antecedent = Temp.newlabel()
-           val result = Temp.newtemp()
+           val join = Tp.newlabel()
+           val consequent = Tp.newlabel()
+           val antecedent = Tp.newlabel()
+           val result = Tp.newtemp()
          in
-           Ex(T.ESEQ(seq[(unCx test)(consequent, antecedent),
-                         T.LABEL(consequent),
-                         T.MOVE(T.TEMP(result), unEx then'),
-                         T.JUMP(T.NAME(join), [join]),
-                         T.LABEL(antecedent),
-                         T.MOVE(T.TEMP(result), unEx else'),
-                         T.LABEL(join)],
-                     T.TEMP(result)))
+           Ex(Te.ESEQ(seq[(unCx test)(consequent, antecedent),
+                         Te.LABEL(consequent),
+                         Te.MOVE(Te.TEMP(result), unEx then'),
+                         Te.JUMP(Te.NAME(join), [join]),
+                         Te.LABEL(antecedent),
+                         Te.MOVE(Te.TEMP(result), unEx else'),
+                         Te.LABEL(join)],
+                     Te.TEMP(result)))
          end
 
   fun forExp((_, varFrameAccess), loExp, hiExp, bodyExp, exitLabel) =
     let
-        val testVar = Frame.exp(varFrameAccess)(T.TEMP Frame.FP)
-        val hiVar = Temp.newtemp()
-        val body = Temp.newlabel()
-        val inc = Temp.newlabel()
+        val testVar = F.exp(varFrameAccess)(Te.TEMP F.FP)
+        val hiVar = Tp.newtemp()
+        val body = Tp.newlabel()
+        val inc = Tp.newlabel()
     in
-        Nx(seq[T.MOVE(testVar, unEx loExp),
-               T.MOVE(T.TEMP hiVar, unEx hiExp), 
-               T.CJUMP(T.LE, testVar, T.TEMP hiVar, body, exitLabel),
-               T.LABEL body, 
+        Nx(seq[Te.MOVE(testVar, unEx loExp),
+               Te.MOVE(Te.TEMP hiVar, unEx hiExp), 
+               Te.CJUMP(Te.LE, testVar, Te.TEMP hiVar, body, exitLabel),
+               Te.LABEL body, 
                unNx bodyExp,
-               T.CJUMP(T.LT, testVar, T.TEMP hiVar, inc, exitLabel),
-               T.LABEL inc,
-               T.MOVE(testVar, T.BINOP(T.PLUS, testVar, T.CONST 1)),
-               T.JUMP(T.NAME body, [body]),
-               T.LABEL exitLabel])
+               Te.CJUMP(Te.LT, testVar, Te.TEMP hiVar, inc, exitLabel),
+               Te.LABEL inc,
+               Te.MOVE(testVar, Te.BINOP(Te.PLUS, testVar, Te.CONST 1)),
+               Te.JUMP(Te.NAME body, [body]),
+               Te.LABEL exitLabel])
     end
 
   fun whileExp(testExp, bodyExp, exitLabel) =
       let 
-          val test = Temp.newlabel()
-          val body = Temp.newlabel()
+          val test = Tp.newlabel()
+          val body = Tp.newlabel()
       in
-          Nx(seq[T.LABEL test, (unCx testExp)(body, exitLabel), 
-                 T.LABEL body, 
+          Nx(seq[Te.LABEL test, (unCx testExp)(body, exitLabel), 
+                 Te.LABEL body, 
                  unNx bodyExp, 
-                 T.JUMP(T.NAME test, [test]),
-                 T.LABEL exitLabel])
+                 Te.JUMP(Te.NAME test, [test]),
+                 Te.LABEL exitLabel])
       end
 
-  fun breakExp exitLabel = Nx(T.JUMP(T.NAME exitLabel, [exitLabel]))
+  fun breakExp exitLabel = Nx(Te.JUMP(Te.NAME exitLabel, [exitLabel]))
 
   fun callExp(funcName, argExpList, Outermost, callerLevel) =
-        Ex(T.CALL(T.NAME funcName, map unEx argExpList))
+        Ex(Te.CALL(Te.NAME funcName, map unEx argExpList))
 
     | callExp(funcName, argExpList, Level{parent=funcParent, frame=_, unique=_}, callerLevel) =
         let
           fun getStaticLink(callerLevel as Level{parent=callerParent, frame=_, unique=_}) =
             if funcParent = callerLevel then
-              T.TEMP(Frame.FP)
+              Te.TEMP(F.FP)
             else
-              T.MEM(getStaticLink(callerParent))
+              Te.MEM(getStaticLink(callerParent))
 
           | getStaticLink(Outermost) = raise OutermostLevelException
 
         in
-          Ex(T.CALL(T.NAME funcName, getStaticLink(callerLevel) :: (map unEx argExpList)))
+          Ex(Te.CALL(Te.NAME funcName, getStaticLink(callerLevel) :: (map unEx argExpList)))
         end
 
   fun letExp([], bodyExp) = Ex(unEx bodyExp)
-    | letExp(decExps, bodyExp) = Ex(T.ESEQ(seq (map unNx decExps), unEx bodyExp))
+    | letExp(decExps, bodyExp) = Ex(Te.ESEQ(seq (map unNx decExps), unEx bodyExp))
 
   fun expSeq(exp :: nil) = exp
     | expSeq(nil) = raise EmptySeqException
     | expSeq(stm :: rest) =
-        (*printTree(Ex(T.ESEQ(unNx stm, unEx(expSeq rest))))*)
+        (*printTree(Ex(Te.ESEQ(unNx stm, unEx(expSeq rest))))*)
         let
           (* Accumulate all stms into one seq, and then return an eseq with the last expression *)
           fun seqAcc(e, nil) = e
-            | seqAcc(stmSeq, exp :: nil) = Ex(T.ESEQ(unNx stmSeq, unEx exp))
-            | seqAcc(stmSeq, nextStm :: rest) = seqAcc(Nx(T.SEQ(unNx stmSeq, unNx nextStm)), rest)
+            | seqAcc(stmSeq, exp :: nil) = Ex(Te.ESEQ(unNx stmSeq, unEx exp))
+            | seqAcc(stmSeq, nextStm :: rest) = seqAcc(Nx(Te.SEQ(unNx stmSeq, unNx nextStm)), rest)
         in
           seqAcc(stm, rest)
         end
 
   fun recordExp(fieldList) =
     let
-      val recordPtr = Temp.newtemp()
+      val recordPtr = Tp.newtemp()
 
       fun setField(fieldExp, idx) =
-        T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP(recordPtr), T.CONST(idx * (Frame.wordSize)))),
+        Te.MOVE(Te.MEM(Te.BINOP(Te.PLUS, Te.TEMP(recordPtr), Te.CONST(idx * (F.wordSize)))),
                unEx fieldExp)
     in
-      Ex(T.ESEQ(
+      Ex(Te.ESEQ(
         seq(
-          T.MOVE(T.TEMP(recordPtr),
-                 Frame.externalCall("malloc", [T.CONST(length(fieldList) * Frame.wordSize)]))
+          Te.MOVE(Te.TEMP(recordPtr),
+                 F.externalCall("malloc", [Te.CONST(length(fieldList) * F.wordSize)]))
           :: (map setField (ListPair.zip (fieldList, (List.tabulate(length(fieldList), (fn i => i))))))),
-        T.TEMP(recordPtr)))
+        Te.TEMP(recordPtr)))
     end
 
-  fun arrayExp(size, initVal) = Ex(Frame.externalCall("initArray", [unEx size, unEx initVal]))
+  fun arrayExp(size, initVal) = Ex(F.externalCall("initArray", [unEx size, unEx initVal]))
 
   fun procEntryExit({level=Outermost, body}) = raise OutermostLevelException
     | procEntryExit({level=Level{parent, frame, unique}, body}) =
-      frags := Frame.PROC{
-          body=Frame.procEntryExit1(frame, T.MOVE(T.TEMP Frame.RV, unEx body)), 
+      frags := F.PROC{
+          body=F.procEntryExit1(frame, Te.MOVE(Te.TEMP F.RV, unEx body)), 
           frame=frame
         } :: !frags
 
-  fun TODO() = Ex(T.CONST 0)
+  fun TODO() = Ex(Te.CONST 0)
 
 end
