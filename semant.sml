@@ -4,9 +4,8 @@ struct
   structure A = Absyn
   structure E = Env
   structure S = Symbol
-  structure Tp = Temp
-  structure Tr = Translate
   structure Ty = Types
+  structure Tr = Translate
 
   (* The result type of transforming and type-checking an expression *)
   type expty = {exp: Tr.exp, ty: Ty.ty}
@@ -82,12 +81,16 @@ struct
     Produces an error if the function return type and the body type are incompatible or
     if a procedure has a non-unit type
   *)
-  fun checkFunctionDeclaredType(NONE, actual, pos) =
-        (checkUnit("Procedure definition: ", {exp=Tr.TODO(), ty=actual}, pos);
+  fun checkFunctionDeclaredType(NONE, bodyExpty, pos) =
+        (checkUnit("Procedure definition: ", bodyExpty, pos);
         Ty.UNIT)
 
-    | checkFunctionDeclaredType(declaredOpt, actual, pos) =
-        checkDeclaredType(declaredOpt, actual, pos)
+    | checkFunctionDeclaredType(declaredOpt, bodyExpty, pos) =
+        let
+          val {exp=_, ty=bodyTy} = bodyExpty
+        in
+          checkDeclaredType(declaredOpt, bodyTy, pos)
+        end
 
   (*
     Produces an error if the two branches do not have compatible types
@@ -99,7 +102,7 @@ struct
 
   (*
     Produces an error if the given list of types is not compatible with the given list
-    of actual types. 
+    of actual Ty. 
   *)
   fun checkTypeList(expectedList, actualList) =
     ListPair.allEq
@@ -254,7 +257,7 @@ struct
       A.SimpleVar(sym, pos) =>
         (case lookupSymbol(venv, sym, pos) of
           SOME(E.VarEntry{access, ty, readOnly}) => {exp=Tr.simpleVar(access, level), ty=actualType(tenv, ty)}
-        | _ => {exp=Tr.TODO(), ty=Ty.UNIT})
+        | _ => {exp=Tr.error(), ty=Ty.UNIT})
 
     | A.FieldVar(var, sym, pos) =>
         let
@@ -268,14 +271,14 @@ struct
 
             | getFieldType(nil, varExp, fieldIdx) = (
                 error pos ("Field " ^ S.name(sym) ^ " does not exist");
-                {exp=Tr.TODO(), ty=Ty.TOP})
+                {exp=Tr.error(), ty=Ty.TOP})
         in
           case varResult of
             {exp=varExp, ty=Ty.RECORD(fieldList, unique)} => getFieldType(fieldList, varExp, 0)
 
           | _ => (
             error pos (S.name(sym) ^ " is not a record type");
-            {exp=Tr.TODO(), ty=Ty.TOP})
+            {exp=Tr.error(), ty=Ty.TOP})
         end
 
     | A.SubscriptVar(var, exp, pos) =>
@@ -287,7 +290,7 @@ struct
             {exp=varExp, ty=Ty.ARRAY(ty, unique)} => {exp=Tr.arrayVar(varExp, idxExp), ty=actualType(tenv, ty)}
         
           | _ => (error pos "Cannot subscript a non-array type";
-            {exp=Tr.TODO(), ty=Ty.TOP}))
+            {exp=Tr.error(), ty=Ty.TOP}))
         end
 
 
@@ -296,7 +299,7 @@ struct
   *)
   and transFuncDec(venv, tenv, {name, params, result, body, pos}, inLoop, level, exitLabel) =
     let
-      val label = Tp.newlabel()
+      val label = Temp.newlabel()
       val formalEscapes = map (fn ({name, escape, typ, pos}) => !escape) params
       val formalAccesses = Tr.formals(level)
 
@@ -307,11 +310,11 @@ struct
       fun addParamToBodyVenv((name, ty, access), curVenv) = S.enter(curVenv, name, E.VarEntry{access=access, ty=ty, readOnly=false})
       val bodyVenv = foldl addParamToBodyVenv venv params'
 
-      val {exp=bodyExp, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop, level, exitLabel) body
+      val bodyExpty as {exp=bodyExp, ty=bodyTy} = transExp (bodyVenv, tenv, inLoop, level, exitLabel) body
 
       val returnType = checkFunctionDeclaredType(
         Option.mapPartial (fn (symbol, pos) => lookupSymbol(tenv, symbol, pos)) (result),
-        bodyTy,
+        bodyExpty,
         pos)
     in
       (Tr.procEntryExit({level=level, body=bodyExp});
@@ -387,13 +390,13 @@ struct
           fun getEscape({name, escape, typ, pos}) = !escape
 
           fun getHeaderInfo({name, params, result=SOME(result, resultPos), body, pos}) =
-                let val label = Tp.newlabel() in
+                let val label = Temp.newlabel() in
                   (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), Ty.TOP),
                     label, (Tr.newLevel{parent=level, name=label, formals=(map getEscape params)}))
                 end
             
             | getHeaderInfo({name, params, result=NONE, body, pos}) =
-                let val label = Tp.newlabel() in
+                let val label = Temp.newlabel() in
                   (name, map getFormal params, Ty.UNIT,
                     label, (Tr.newLevel{parent=level, name=label, formals=(map getEscape params)}))
                 end
@@ -476,7 +479,7 @@ struct
             fun getExp({exp, ty}) = exp
           in
             case (typeList) of
-              nil => {exp=Tr.TODO(), ty=Ty.UNIT}
+              nil => {exp=Tr.error(), ty=Ty.UNIT}
             | _ =>   {exp=Tr.expSeq(map getExp typeList), ty=getTy (List.last typeList)}
           end
 
@@ -507,7 +510,7 @@ struct
                 SOME(E.FunEntry{level, label, formals, result}) =>
                       {formals=formals, result=result, label=label, level=level}
               | _ => (error pos "Unable to apply a non-function value";
-                     {formals=[], result=Ty.TOP, label=Tp.newlabel(), level=level})
+                     {formals=[], result=Ty.TOP, label=Temp.newlabel(), level=level})
 
             val argExptys = map trexp args
             val argTypes = map (fn ({exp, ty}) => ty) argExptys
@@ -551,7 +554,7 @@ struct
       | trexp(A.ForExp{var, escape, lo, hi, body, pos}) = 
           let 
             val access = Tr.allocLocal(level)(!escape)
-            val exitLabel = Tp.newlabel()
+            val exitLabel = Temp.newlabel()
             val venv' = S.enter(venv, var, E.VarEntry{access=access, ty=Ty.INT, readOnly=true})
             val loResult as {exp=loExp, ty=loTy} = trexp lo
             val hiResult as {exp=hiExp, ty=hiTy} = trexp hi
@@ -565,7 +568,7 @@ struct
 
       | trexp(A.WhileExp{test, body, pos}) = 
           let
-            val exitLabel = Tp.newlabel()
+            val exitLabel = Temp.newlabel()
             val testResult as {exp=testExp, ty=testTy} = trexp test
             val bodyResult as {exp=bodyExp, ty=bodyTy} = transExp(venv, tenv, true, level, exitLabel) body
           in
@@ -605,20 +608,22 @@ struct
       in if inLoop then trexpLoop else trexp
     end
 
-
+  (* Debugging utility to print the frag list to stdout *)
   fun showIR(nil) = nil
     | showIR(frag :: rest) = (Tr.printFrag frag; frag :: showIR(rest))
+
 
   (* Translates and type-checks an abstract syntax tree *)
   fun transProg ast =
     (legalAst := true;
+     Tr.clearFrags();
     let
-      val mainLabel = Tp.newlabel()
+      val mainLabel = Temp.newlabel()
       val mainLevel = Tr.newLevel{parent=Tr.outermost, name=mainLabel, formals=[]} 
       val {exp=topLevelExp, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel, mainLabel) ast)
     in
       (Tr.procEntryExit({level=mainLevel, body=topLevelExp});
-       showIR(Tr.getResult()))
+       Tr.getResult())
     end)
 
 end

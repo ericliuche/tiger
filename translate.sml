@@ -5,6 +5,8 @@ sig
   type exp
   type frag
 
+  structure Frame: FRAME
+
   (* Frame Layout *)
   val outermost: level
   val newLevel: {parent: level, name: Temp.label, formals: bool list} -> level
@@ -21,8 +23,8 @@ sig
   val nilExp: unit -> exp
   val stringExp: string -> exp
 
-  val assignExp: exp * exp -> exp
   val initExp: access * exp -> exp
+  val assignExp: exp * exp -> exp
 
   val arithExp: exp * Absyn.oper * exp -> exp
   val compExp: {exp: exp, ty: Types.ty} * Absyn.oper * {exp: exp, ty: Types.ty} -> exp
@@ -32,21 +34,22 @@ sig
   val forExp: access * exp * exp * exp * Temp.label -> exp
   val breakExp: Temp.label -> exp
   val letExp: exp list * exp -> exp
-  val callExp: Temp.label * exp list * level * level -> exp
-
   val expSeq: exp list -> exp
+
+  val callExp: Temp.label * exp list * level * level -> exp
 
   val recordExp: exp list -> exp
   val arrayExp: exp * exp -> exp
 
-  val procEntryExit : {level: level, body: exp} -> unit
+  val procEntryExit: {level: level, body: exp} -> unit
 
-  structure F: FRAME 
-  val getResult : unit -> F.frag list
+  val getResult: unit -> Frame.frag list
+  val clearFrags: unit -> unit
 
-  (* Dummy value to allow for testing with an incomplete implementation *)
-  val TODO: unit -> exp
+  (* Error value returned during translation of illegal Tiger programs *)
+  val error: unit -> exp
 
+  (* Debugging utility to print a representation of the given frag to standard out *)
   val printFrag: frag -> frag
 
 end
@@ -56,102 +59,106 @@ struct
 
   (* Frame Layout *)
 
-  structure F = MipsFrame
+  structure Frame = MipsFrame
 
-  datatype level = Level of {parent: level, frame: F.frame, unique: unit ref}
+  datatype level = Level of {parent: level, frame: Frame.frame, unique: unit ref}
                  | Outermost
 
-  type access = level * F.access
+  type access = level * Frame.access
 
-  type frag = F.frag
+  type frag = Frame.frag
 
   val outermost = Outermost
 
-  val frags : F.frag list ref = ref []
+  val frags : Frame.frag list ref = ref []
+  
   fun getResult() = rev (!frags)
 
+  fun clearFrags() = frags := []
+
   fun newLevel({parent, name, formals}) =
-    Level{parent=parent, frame=F.newFrame{name=name, formals=true :: formals}, unique=ref ()}
+    Level{parent=parent, frame=Frame.newFrame{name=name, formals=true :: formals}, unique=ref ()}
 
   fun formals(level as Outermost) = []
 
     | formals(level as Level{parent, frame, unique}) =
-        case F.formals(frame) of
+        case Frame.formals(frame) of
           staticLinkOffset :: formals => map (fn formal => (level, formal)) (formals)
         | nil => nil
 
+  (* Raised in cases of illegal actions on the outermost lexical level *)
   exception OutermostLevelException
 
   fun allocLocal(level as Outermost) = raise OutermostLevelException
     | allocLocal(level as Level{parent, frame, unique}) =
-        fn esc => (level, F.allocLocal(frame)(esc))
+        fn esc => (level, Frame.allocLocal(frame)(esc))
+
+
 
   (* IR Translation *)
 
   structure A = Absyn
-  structure Te = Tree
-  structure Tp = Temp
-  structure Ty = Types
 
-  datatype exp = Ex of Te.exp
-               | Nx of Te.stm
-               | Cx of Tp.label * Tp.label -> Te.stm
+  datatype exp = Ex of Tree.exp
+               | Nx of Tree.stm
+               | Cx of Temp.label * Temp.label -> Tree.stm
 
   (* Raised in cases that are impossible to reach in valid Tiger programs *)
   exception IllegalProgramException
 
-  exception EmptySeqException
-
   (* Produces a SEQ linked list from the list of statements *)
   fun seq(s :: nil) = s
-    | seq(s :: rest) = Te.SEQ(s, seq(rest))
-    | seq(nil) = raise EmptySeqException
+    | seq(s :: rest) = Tree.SEQ(s, seq(rest))
+    | seq(nil) = raise IllegalProgramException
 
   (* Coerces the given exp into an exp used for its value *)
   fun unEx(Ex e) = e
-    | unEx(Nx s) = Te.ESEQ(s, Te.CONST 0)
+    | unEx(Nx s) = Tree.ESEQ(s, Tree.CONST 0)
     | unEx(Cx genstm) =
         let
-          val r = Tp.newtemp()
-          val t = Tp.newlabel()
-          val f = Tp.newlabel()
+          val r = Temp.newtemp()
+          val t = Temp.newlabel()
+          val f = Temp.newlabel()
         in
-          Te.ESEQ(seq[Te.MOVE(Te.TEMP r, Te.CONST 1),
+          Tree.ESEQ(seq[Tree.MOVE(Tree.TEMP r, Tree.CONST 1),
                      genstm(t, f),
-                     Te.LABEL f,
-                     Te.MOVE(Te.TEMP r, Te.CONST 0),
-                     Te.LABEL t],
-                Te.TEMP r)
+                     Tree.LABEL f,
+                     Tree.MOVE(Tree.TEMP r, Tree.CONST 0),
+                     Tree.LABEL t],
+                Tree.TEMP r)
         end
 
   (* Coerces the given exp into a stm *)
   fun unNx(Nx s) = s
-    | unNx(Ex e) = Te.EXP(e)
+    | unNx(Ex e) = Tree.EXP(e)
     | unNx(Cx genstm) =
         let
-          val t = Tp.newlabel()
-          val f = Tp.newlabel()
+          val t = Temp.newlabel()
+          val f = Temp.newlabel()
         in
-          seq[genstm(t, f), Te.LABEL t, Te.LABEL f]
+          seq[genstm(t, f), Tree.LABEL t, Tree.LABEL f]
         end
 
 
   (* Coerces the given exp into a conditional branching value *)
   fun unCx(Cx genstm) = genstm
-    | unCx(Nx s) = unCx(Ex(Te.CONST(0))) (* Unreachable in legal Tiger program *)
-    | unCx(Ex (Te.CONST 0)) = (fn (t, f) => Te.JUMP(Te.NAME f, [f]))
-    | unCx(Ex (Te.CONST 1)) = (fn (t, f) => Te.JUMP(Te.NAME t, [t]))
-    | unCx(e as Ex(_)) = (fn (t, f) => Te.CJUMP(Te.NE, Te.CONST 0, unEx e, t, f))
+    | unCx(Nx s) = unCx(Ex(Tree.CONST(0))) (* Unreachable in legal Tiger program *)
+    | unCx(Ex (Tree.CONST 0)) = (fn (t, f) => Tree.JUMP(Tree.NAME f, [f]))
+    | unCx(Ex (Tree.CONST 1)) = (fn (t, f) => Tree.JUMP(Tree.NAME t, [t]))
+    | unCx(e as Ex(_)) = (fn (t, f) => Tree.CJUMP(Tree.NE, Tree.CONST 0, unEx e, t, f))
 
 
   (* Debugging utility to print an exp and return it *)
   fun printTree(exp as Cx(genstm)) =
-        (Printtree.printtree(TextIO.stdOut, genstm(Tp.namedlabel("true"), Tp.namedlabel("false"))); exp)
+        (Printtree.printtree(TextIO.stdOut, genstm(Temp.namedlabel("true"), Temp.namedlabel("false"))); exp)
     | printTree(exp) =
         (Printtree.printtree(TextIO.stdOut, unNx exp); exp)
 
-  fun printFrag(frag) = F.printFrag(frag)
+  (* Debugging utility to print a frag *)
+  fun printFrag(frag) = Frame.printFrag(frag)
 
+
+  (* Var translations *)
 
   fun simpleVar(varAcc as (varLevel, varFrameAccess), curLevel) =
     let
@@ -161,66 +168,73 @@ struct
       val (varLevelParent, varLevelFrame, varLevelID) = unpackLevel varLevel
 
       (* Accumulates mem accesses for static links until we reach the correct level*)
-      fun simpleVarAccum(curLevel: level, accumulator: Te.exp) =
+      fun simpleVarAccum(curLevel: level, accumulator: Tree.exp) =
         let
           val (curLevelParent, curLevelFrame, curLevelID) = unpackLevel curLevel
-          val staticLink = hd(F.formals curLevelFrame)
+          val staticLink = hd(Frame.formals curLevelFrame)
         in
           if curLevelID = varLevelID then
-            F.exp(varFrameAccess)(accumulator)
+            Frame.exp(varFrameAccess)(accumulator)
           else
-            simpleVarAccum(curLevelParent, F.exp(staticLink)(accumulator))
+            simpleVarAccum(curLevelParent, Frame.exp(staticLink)(accumulator))
         end
-
-      val result = simpleVarAccum(curLevel, Te.TEMP(F.FP))
     in
-      Ex(simpleVarAccum(curLevel, Te.TEMP(F.FP)))
+      Ex(simpleVarAccum(curLevel, Tree.TEMP(Frame.FP)))
     end
 
   fun arrayVar(varExp, idxExp) =
-    Ex(Te.MEM(Te.BINOP(
-      Te.PLUS,
-      Te.MEM(unEx varExp),
-      Te.BINOP(
-        Te.MUL,
+    Ex(Tree.MEM(Tree.BINOP(
+      Tree.PLUS,
+      Tree.MEM(unEx varExp),
+      Tree.BINOP(
+        Tree.MUL,
         unEx idxExp,
-        Te.CONST (F.wordSize)))))
+        Tree.CONST (Frame.wordSize)))))
 
   fun fieldVar(varExp, fieldIdx) =
-    Ex(Te.MEM(Te.BINOP(
-      Te.PLUS,
-      Te.MEM(unEx varExp),
-      Te.CONST(fieldIdx * F.wordSize))))
+    Ex(Tree.MEM(Tree.BINOP(
+      Tree.PLUS,
+      Tree.MEM(unEx varExp),
+      Tree.CONST(fieldIdx * Frame.wordSize))))
 
-  fun intExp(intVal) = Ex(Te.CONST intVal)
 
-  fun nilExp() = Ex(Te.CONST 0)
+  (* Primitive expression translations *)
+
+  fun intExp(intVal) = Ex(Tree.CONST intVal)
+
+  fun nilExp() = Ex(Tree.CONST 0)
 
   fun stringExp lit = 
-    let val label = Tp.newlabel()
+    let val label = Temp.newlabel()
     in
-      frags := F.STRING(label, lit) :: !frags;
-      Ex(Te.NAME label)
+      frags := Frame.STRING(label, lit) :: !frags;
+      Ex(Tree.NAME label)
     end
 
-  fun assignExp(var, exp) = Nx(Te.MOVE(unEx var, unEx exp))
+
+  (* Assignment/initialization translations *)
 
   fun initExp((level, frameAccess), exp) =
-    Nx(Te.MOVE(F.exp(frameAccess)(Te.TEMP(F.FP)), unEx exp))
+    Nx(Tree.MOVE(Frame.exp(frameAccess)(Tree.TEMP(Frame.FP)), unEx exp))
+  
+  fun assignExp(var, exp) = Nx(Tree.MOVE(unEx var, unEx exp))
+
+
+  (* Operator expression translations *)
 
   fun arithExp(leftExp, oper, rightExp) =
     let
       val binop = case oper of
-        A.PlusOp   => Te.PLUS
-      | A.MinusOp  => Te.MINUS
-      | A.TimesOp  => Te.MUL
-      | A.DivideOp => Te.DIV
+        A.PlusOp   => Tree.PLUS
+      | A.MinusOp  => Tree.MINUS
+      | A.TimesOp  => Tree.MUL
+      | A.DivideOp => Tree.DIV
       | _ => raise IllegalProgramException
     in
-      Ex(Te.BINOP(binop, unEx leftExp, unEx rightExp))
+      Ex(Tree.BINOP(binop, unEx leftExp, unEx rightExp))
     end
 
-  fun compExp({exp=leftExp, ty=Ty.STRING}, oper, {exp=rightExp, ty=Ty.STRING}) =
+  fun compExp({exp=leftExp, ty=Types.STRING}, oper, {exp=rightExp, ty=Types.STRING}) =
       let
         val funName = case oper of
             A.EqOp  => "stringEQ"
@@ -231,204 +245,216 @@ struct
           | A.GeOp  => "stringGE"
           | _     => raise IllegalProgramException
       in
-          Ex(F.externalCall(funName, ([unEx leftExp, unEx rightExp])))
+          Ex(Frame.externalCall(funName, ([unEx leftExp, unEx rightExp])))
       end
     | compExp({exp=leftExp, ty=leftTy}, oper, {exp=rightExp, ty=rightTy}) =
       let
         val relop = case oper of
-            A.EqOp  => Te.EQ
-          | A.NeqOp => Te.NE
-          | A.LtOp  => Te.LT
-          | A.LeOp  => Te.LE
-          | A.GtOp  => Te.GT
-          | A.GeOp  => Te.GE
+            A.EqOp  => Tree.EQ
+          | A.NeqOp => Tree.NE
+          | A.LtOp  => Tree.LT
+          | A.LeOp  => Tree.LE
+          | A.GtOp  => Tree.GT
+          | A.GeOp  => Tree.GE
           | _     => raise IllegalProgramException
       in
-        Cx(fn (t, f) => Te.CJUMP(relop, unEx leftExp, unEx rightExp, t, f))
+        Cx(fn (t, f) => Tree.CJUMP(relop, unEx leftExp, unEx rightExp, t, f))
       end
 
 
+  (* Control flow translations *)
+
   fun ifExp(test, Nx(then'), NONE) =
         let
-          val consequent = Tp.newlabel()
-          val join = Tp.newlabel()
+          val consequent = Temp.newlabel()
+          val join = Temp.newlabel()
         in
           Nx(seq[(unCx test)(consequent, join),
-                 Te.LABEL(consequent),
+                 Tree.LABEL(consequent),
                  then',
-                 Te.LABEL(join)])
+                 Tree.LABEL(join)])
         end
 
     | ifExp(test, Nx(then'), SOME(Nx(else'))) =
         let
-          val consequent = Tp.newlabel()
-          val antecedent = Tp.newlabel()
-          val join = Tp.newlabel()
+          val consequent = Temp.newlabel()
+          val antecedent = Temp.newlabel()
+          val join = Temp.newlabel()
         in
           Nx(seq[(unCx test)(consequent, antecedent),
-                 Te.LABEL(consequent),
+                 Tree.LABEL(consequent),
                  then',
-                 Te.JUMP(Te.NAME(join), [join]),
-                 Te.LABEL(antecedent),
+                 Tree.JUMP(Tree.NAME(join), [join]),
+                 Tree.LABEL(antecedent),
                  else',
-                 Te.LABEL(join)])
+                 Tree.LABEL(join)])
         end
 
     | ifExp(test, Cx(then'), SOME(Cx(else'))) =
         let
-          val consequent = Tp.newlabel()
-          val antecedent = Tp.newlabel()
+          val consequent = Temp.newlabel()
+          val antecedent = Temp.newlabel()
         in
           Cx(fn (t, f) => seq[(unCx test)(consequent, antecedent),
-                              Te.LABEL(consequent),
+                              Tree.LABEL(consequent),
                               then'(t, f),
-                              Te.LABEL(antecedent),
+                              Tree.LABEL(antecedent),
                               else'(t, f)])
         end
 
     | ifExp(test, then', SOME(Cx(else'))) =
         let
-          val consequent = Tp.newlabel()
-          val antecedent = Tp.newlabel()
+          val consequent = Temp.newlabel()
+          val antecedent = Temp.newlabel()
         in
           Cx(fn (t, f) => seq[(unCx test)(consequent, antecedent),
-                              Te.LABEL(consequent),
-                              Te.CJUMP(Te.NE, unEx then', Te.CONST(0), t, f),
-                              Te.LABEL(antecedent),
+                              Tree.LABEL(consequent),
+                              (unCx then')(t, f),
+                              Tree.LABEL(antecedent),
                               else'(t, f)])
         end
 
     | ifExp(test, Cx(then'), SOME(else')) =
         let
-          val consequent = Tp.newlabel()
-          val antecedent = Tp.newlabel()
+          val consequent = Temp.newlabel()
+          val antecedent = Temp.newlabel()
         in
           Cx(fn (t, f) => seq[(unCx test)(consequent, antecedent),
-                              Te.LABEL(consequent),
+                              Tree.LABEL(consequent),
                               then'(t, f),
-                              Te.LABEL(antecedent),
-                              Te.CJUMP(Te.NE, unEx else', Te.CONST(0), t, f)])
+                              Tree.LABEL(antecedent),
+                              (unCx else')(t, f)])
         end
 
     | ifExp(test, then', NONE) =
         let
-           val join = Tp.newlabel()
-           val consequent = Tp.newlabel()
+           val join = Temp.newlabel()
+           val consequent = Temp.newlabel()
          in
            Nx(seq[(unCx test)(consequent, join),
-                  Te.LABEL(consequent),
+                  Tree.LABEL(consequent),
                   unNx then',
-                  Te.LABEL(join)])
+                  Tree.LABEL(join)])
          end
 
     | ifExp(test, then', SOME(else')) =
         let
-           val join = Tp.newlabel()
-           val consequent = Tp.newlabel()
-           val antecedent = Tp.newlabel()
-           val result = Tp.newtemp()
+           val join = Temp.newlabel()
+           val consequent = Temp.newlabel()
+           val antecedent = Temp.newlabel()
+           val result = Temp.newtemp()
          in
-           Ex(Te.ESEQ(seq[(unCx test)(consequent, antecedent),
-                         Te.LABEL(consequent),
-                         Te.MOVE(Te.TEMP(result), unEx then'),
-                         Te.JUMP(Te.NAME(join), [join]),
-                         Te.LABEL(antecedent),
-                         Te.MOVE(Te.TEMP(result), unEx else'),
-                         Te.LABEL(join)],
-                     Te.TEMP(result)))
+           Ex(Tree.ESEQ(seq[(unCx test)(consequent, antecedent),
+                         Tree.LABEL(consequent),
+                         Tree.MOVE(Tree.TEMP(result), unEx then'),
+                         Tree.JUMP(Tree.NAME(join), [join]),
+                         Tree.LABEL(antecedent),
+                         Tree.MOVE(Tree.TEMP(result), unEx else'),
+                         Tree.LABEL(join)],
+                     Tree.TEMP(result)))
          end
 
   fun forExp((_, varFrameAccess), loExp, hiExp, bodyExp, exitLabel) =
     let
-        val testVar = F.exp(varFrameAccess)(Te.TEMP F.FP)
-        val hiVar = Tp.newtemp()
-        val body = Tp.newlabel()
-        val inc = Tp.newlabel()
+        val testVar = Frame.exp(varFrameAccess)(Tree.TEMP Frame.FP)
+        val hiVar = Temp.newtemp()
+        val body = Temp.newlabel()
+        val inc = Temp.newlabel()
     in
-        Nx(seq[Te.MOVE(testVar, unEx loExp),
-               Te.MOVE(Te.TEMP hiVar, unEx hiExp), 
-               Te.CJUMP(Te.LE, testVar, Te.TEMP hiVar, body, exitLabel),
-               Te.LABEL body, 
+        Nx(seq[Tree.MOVE(testVar, unEx loExp),
+               Tree.MOVE(Tree.TEMP hiVar, unEx hiExp), 
+               Tree.CJUMP(Tree.LE, testVar, Tree.TEMP hiVar, body, exitLabel),
+               Tree.LABEL body, 
                unNx bodyExp,
-               Te.CJUMP(Te.LT, testVar, Te.TEMP hiVar, inc, exitLabel),
-               Te.LABEL inc,
-               Te.MOVE(testVar, Te.BINOP(Te.PLUS, testVar, Te.CONST 1)),
-               Te.JUMP(Te.NAME body, [body]),
-               Te.LABEL exitLabel])
+               Tree.CJUMP(Tree.LT, testVar, Tree.TEMP hiVar, inc, exitLabel),
+               Tree.LABEL inc,
+               Tree.MOVE(testVar, Tree.BINOP(Tree.PLUS, testVar, Tree.CONST 1)),
+               Tree.JUMP(Tree.NAME body, [body]),
+               Tree.LABEL exitLabel])
     end
 
   fun whileExp(testExp, bodyExp, exitLabel) =
       let 
-          val test = Tp.newlabel()
-          val body = Tp.newlabel()
+          val test = Temp.newlabel()
+          val body = Temp.newlabel()
       in
-          Nx(seq[Te.LABEL test, (unCx testExp)(body, exitLabel), 
-                 Te.LABEL body, 
+          Nx(seq[Tree.LABEL test, (unCx testExp)(body, exitLabel), 
+                 Tree.LABEL body, 
                  unNx bodyExp, 
-                 Te.JUMP(Te.NAME test, [test]),
-                 Te.LABEL exitLabel])
+                 Tree.JUMP(Tree.NAME test, [test]),
+                 Tree.LABEL exitLabel])
       end
 
-  fun breakExp exitLabel = Nx(Te.JUMP(Te.NAME exitLabel, [exitLabel]))
+  fun breakExp exitLabel = Nx(Tree.JUMP(Tree.NAME exitLabel, [exitLabel]))
+
+  fun letExp([], bodyExp) = Ex(unEx bodyExp)
+    | letExp(decExps, bodyExp) = Ex(Tree.ESEQ(seq (map unNx decExps), unEx bodyExp))
+
+  fun expSeq(exp :: nil) = exp
+    | expSeq(nil) = raise IllegalProgramException
+    | expSeq(stm :: rest) =
+        (*printTree(Ex(Tree.ESEQ(unNx stm, unEx(expSeq rest))))*)
+        let
+          (* Accumulate all stms into one seq, and then return an eseq with the last expression *)
+          fun seqAcc(e, nil) = e
+            | seqAcc(stmSeq, exp :: nil) = Ex(Tree.ESEQ(unNx stmSeq, unEx exp))
+            | seqAcc(stmSeq, nextStm :: rest) = seqAcc(Nx(Tree.SEQ(unNx stmSeq, unNx nextStm)), rest)
+        in
+          seqAcc(stm, rest)
+        end
+
+
+  (* Function application translation *)
 
   fun callExp(funcName, argExpList, Outermost, callerLevel) =
-        Ex(Te.CALL(Te.NAME funcName, map unEx argExpList))
+        Ex(Tree.CALL(Tree.NAME funcName, map unEx argExpList))
 
     | callExp(funcName, argExpList, Level{parent=funcParent, frame=_, unique=_}, callerLevel) =
         let
           fun getStaticLink(callerLevel as Level{parent=callerParent, frame=_, unique=_}) =
             if funcParent = callerLevel then
-              Te.TEMP(F.FP)
+              Tree.TEMP(Frame.FP)
             else
-              Te.MEM(getStaticLink(callerParent))
+              Tree.MEM(getStaticLink(callerParent))
 
           | getStaticLink(Outermost) = raise OutermostLevelException
 
         in
-          Ex(Te.CALL(Te.NAME funcName, getStaticLink(callerLevel) :: (map unEx argExpList)))
+          Ex(Tree.CALL(Tree.NAME funcName, getStaticLink(callerLevel) :: (map unEx argExpList)))
         end
 
-  fun letExp([], bodyExp) = Ex(unEx bodyExp)
-    | letExp(decExps, bodyExp) = Ex(Te.ESEQ(seq (map unNx decExps), unEx bodyExp))
 
-  fun expSeq(exp :: nil) = exp
-    | expSeq(nil) = raise EmptySeqException
-    | expSeq(stm :: rest) =
-        (*printTree(Ex(Te.ESEQ(unNx stm, unEx(expSeq rest))))*)
-        let
-          (* Accumulate all stms into one seq, and then return an eseq with the last expression *)
-          fun seqAcc(e, nil) = e
-            | seqAcc(stmSeq, exp :: nil) = Ex(Te.ESEQ(unNx stmSeq, unEx exp))
-            | seqAcc(stmSeq, nextStm :: rest) = seqAcc(Nx(Te.SEQ(unNx stmSeq, unNx nextStm)), rest)
-        in
-          seqAcc(stm, rest)
-        end
+  (* Record and array creation *)
 
   fun recordExp(fieldList) =
     let
-      val recordPtr = Tp.newtemp()
+      val recordPtr = Temp.newtemp()
 
       fun setField(fieldExp, idx) =
-        Te.MOVE(Te.MEM(Te.BINOP(Te.PLUS, Te.TEMP(recordPtr), Te.CONST(idx * (F.wordSize)))),
+        Tree.MOVE(Tree.MEM(Tree.BINOP(Tree.PLUS, Tree.TEMP(recordPtr), Tree.CONST(idx * (Frame.wordSize)))),
                unEx fieldExp)
     in
-      Ex(Te.ESEQ(
+      Ex(Tree.ESEQ(
         seq(
-          Te.MOVE(Te.TEMP(recordPtr),
-                 F.externalCall("malloc", [Te.CONST(length(fieldList) * F.wordSize)]))
+          Tree.MOVE(Tree.TEMP(recordPtr),
+                 Frame.externalCall("malloc", [Tree.CONST(length(fieldList) * Frame.wordSize)]))
           :: (map setField (ListPair.zip (fieldList, (List.tabulate(length(fieldList), (fn i => i))))))),
-        Te.TEMP(recordPtr)))
+        Tree.TEMP(recordPtr)))
     end
 
-  fun arrayExp(size, initVal) = Ex(F.externalCall("initArray", [unEx size, unEx initVal]))
+  fun arrayExp(size, initVal) = Ex(Frame.externalCall("initArray", [unEx size, unEx initVal]))
 
+
+  (* Handles procedure call protocol boilerplate *)
   fun procEntryExit({level=Outermost, body}) = raise OutermostLevelException
     | procEntryExit({level=Level{parent, frame, unique}, body}) =
-      frags := F.PROC{
-          body=F.procEntryExit1(frame, Te.MOVE(Te.TEMP F.RV, unEx body)), 
+      frags := Frame.PROC{
+          body=Frame.procEntryExit1(frame, Tree.MOVE(Tree.TEMP Frame.RV, unEx body)), 
           frame=frame
         } :: !frags
 
-  fun TODO() = Ex(Te.CONST 0)
+
+  (* Called during translation of illegal Tiger programs *)
+  fun error() = raise IllegalProgramException
 
 end
