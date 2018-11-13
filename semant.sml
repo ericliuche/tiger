@@ -458,14 +458,13 @@ struct
               (A.PlusOp | A.MinusOp | A.TimesOp | A.DivideOp) =>
                 (checkInt("", leftResult, pos);
                  checkInt("", rightResult, pos);
-                 {exp=Translate.arithExp(leftExp, oper, rightExp), ty=T.INT})
+                {exp=Translate.arithExp(leftExp, oper, rightExp), ty=T.INT})
             | (A.LtOp | A.LeOp | A.GtOp | A.GeOp) =>
                 (checkCompOpTypes(leftResult, rightResult, pos);
-                {exp=Translate.compExp(leftExp, oper, rightExp), ty=T.INT})
-
+                {exp=Translate.compExp(leftResult, oper, rightResult), ty=T.INT})
             | (A.EqOp | A.NeqOp) =>
                 (checkEqualOpTypes(leftResult, rightResult, pos);
-                {exp=Translate.compExp(leftExp, oper, rightExp), ty=T.INT})
+                {exp=Translate.compExp(leftResult, oper, rightResult), ty=T.INT})
           end
 
       | trexp(A.SeqExp(expPosList)) =

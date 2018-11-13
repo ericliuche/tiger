@@ -25,7 +25,7 @@ sig
   val initExp: access * exp -> exp
 
   val arithExp: exp * Absyn.oper * exp -> exp
-  val compExp: exp * Absyn.oper * exp -> exp
+  val compExp: {exp: exp, ty: Types.ty} * Absyn.oper * {exp: exp, ty: Types.ty} -> exp
 
   val ifExp: exp * exp * exp option -> exp
   val whileExp: exp * exp * Temp.label -> exp
@@ -219,19 +219,32 @@ struct
       Ex(T.BINOP(binop, unEx leftExp, unEx rightExp))
     end
 
-  fun compExp(leftExp, oper, rightExp) =
-    let
-      val relop = case oper of
-        A.EqOp  => T.EQ
-      | A.NeqOp => T.NE
-      | A.LtOp  => T.LT
-      | A.LeOp  => T.LE
-      | A.GtOp  => T.GT
-      | A.GeOp  => T.GE
-      | _     => raise IllegalProgramException
-    in
-      Cx(fn (t, f) => T.CJUMP(relop, unEx leftExp, unEx rightExp, t, f))
-    end
+  fun compExp({exp=leftExp, ty=Types.STRING}, oper, {exp=rightExp, ty=Types.STRING}) =
+      let
+        val funName = case oper of
+            A.EqOp  => "stringEQ"
+          | A.NeqOp => "stringNE"
+          | A.LtOp  => "stringLT"
+          | A.LeOp  => "stringLE"
+          | A.GtOp  => "stringGT"
+          | A.GeOp  => "stringGE"
+          | _     => raise IllegalProgramException
+      in
+          Ex(Frame.externalCall(funName, ([unEx leftExp, unEx rightExp])))
+      end
+    | compExp({exp=leftExp, ty=leftTy}, oper, {exp=rightExp, ty=rightTy}) =
+      let
+        val relop = case oper of
+            A.EqOp  => T.EQ
+          | A.NeqOp => T.NE
+          | A.LtOp  => T.LT
+          | A.LeOp  => T.LE
+          | A.GtOp  => T.GT
+          | A.GeOp  => T.GE
+          | _     => raise IllegalProgramException
+      in
+        Cx(fn (t, f) => T.CJUMP(relop, unEx leftExp, unEx rightExp, t, f))
+      end
 
 
   fun ifExp(test, Nx(then'), NONE) =
