@@ -441,11 +441,12 @@ struct
               SOME(T.ARRAY(ty, unique)) => SOME(ty)
             | nonarray => nonarray
 
-            val {exp=_, ty=initType} = trexp init
+            val initResult as {exp=initExp, ty=initType} = trexp init
+            val sizeResult as {exp=sizeExp, ty=sizeType} = trexp size
           in
-            (checkInt("Array size: ", trexp size, pos);
+            (checkInt("Array size: ", sizeResult, pos);
              checkDeclaredType(arraySubtype, initType, pos); 
-            {exp=Translate.TODO(), ty=Option.getOpt(declaredType, T.TOP)})
+            {exp=Translate.arrayExp(sizeExp, initExp), ty=Option.getOpt(declaredType, T.TOP)})
           end
         
       | trexp(A.OpExp{left, oper, right, pos}) =
@@ -579,15 +580,17 @@ struct
               Option.getOpt(lookupSymbol(tenv, typ, pos), T.TOP))
 
             fun getFieldType(symbol, exp, pos) =
-              let val {exp=_, ty=fieldTy} = trexp exp
+              let val {exp=fieldExp, ty=fieldTy} = trexp exp
               in
-                (symbol, fieldTy)
+                (symbol, fieldTy, fieldExp)
               end
+            val fieldTypeExpList = map getFieldType fieldList
 
-            val fieldTypeList = map getFieldType fieldList
+            val fieldTypeList = map (fn (sym, ty, _) => (sym, ty)) fieldTypeExpList
+            val fieldExps = map (fn (_, _, exp) => exp) fieldTypeExpList
           in
             (checkRecordType(recordType, fieldTypeList, pos);
-              {exp=Translate.TODO(), ty=recordType})
+              {exp=Translate.recordExp(fieldExps), ty=recordType})
           end
 
       | trexp(A.BreakExp(pos)) = 
