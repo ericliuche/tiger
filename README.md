@@ -1,24 +1,26 @@
-# Static Semantics
+# Intermediate Representation Translation
 
 ### Nick Flanders and Chenyang Eric Liu
 
-Our type-checker uses a lattice such that `BREAK` is the bottom type and `TOP`
-is the top type. We use the helper functions `join` and `isSubtype` to aid
-in checking the correctness of types.
+Our Translate module exposes an interface to produce an IR tree from
+a given abstract syntax expression or declaration. All of the translation
+functions produce a Translate.exp which is internally recognizable as
+an Ex value, an Nx statement, or a Cx control flow handler. Boolean
+translations are converted to nested if-then(-else) statements, so our
+translator handles these special cases to ensure that the nested control
+flow operations produce relatively efficient IR code.
 
-Our `transExp` function takes both a variable environment and a type
-environment as well as an `inLoop` flag. Based on the value of `inLoop`,
-`transExp` returns a functions which will either allow or disallow any
-`break` statements it encounters while recursively checking types.
-Whenever we enter a loop, we call `transExp(venv, tenv, true) exp` instead of
-`trexp(exp)` in order to switch into the appropriate context. Likewise,
-whenever we call a function or enter a context where break is not allowed,
-we call `transExp(venv, tenv, false) exp` to switch out of the loop context
-if we are in one.
+We define two exception types, IllegalProgramException and
+OutermostLevelException, which are never raised in valid Tiger programs.
 
-We wrap our `ErrorMsg.error` logic in an `error` function which sets a
-`legalAst` flag to `false` whenever an error is encountered.
+To resolve a variable reference across lexical scopes, we defined a
+recursive function with an accumulator that consists of the IR tree
+required to reach the frame pointer for the current lexical level.
 
-Additionally, we re-use our symbol table implementation in a couple of
-locations other than our variable and type environments, such as when we check
-if function names are unique and when we check for cyclical type definitions.
+Additionally, we build our list of Translate.frags in reverse order to
+be more efficient and then reverse the list when it is retrieved after
+translation. We also define a Translate interface function to reset the
+translated frags to allow for multiple files to be compiled per invocation.
+
+Finally, we define a few debugging utilities to easily print IR trees and
+frags to standard out, although these are not called during translation.
