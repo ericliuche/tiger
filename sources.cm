@@ -19,6 +19,13 @@ mipsframe.sml
 translate.sml
 tree.sml
 printtree.sml
+canon.sml
+mipsgen.sml
+assem.sml
+graph.sig
+graph.sml
+flowgraph.sml
+main.sml
 $/ml-yacc-lib.cm
 $/smlnj-lib.cm
 $/basis.cm
