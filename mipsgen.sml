@@ -72,6 +72,7 @@ struct
                         dst=[],
                         jump=NONE})
 
+
         | munchStm(T.MOVE(T.MEM(exp1), exp2)) =
             emit(A.OPER{assem="sw `s0, `s1\n",
                         src=[munchExp exp1, munchExp exp2],
@@ -205,7 +206,7 @@ struct
                           jump=NONE}))
 
 
-        | munchExp(_) = raise IllegalTree
+        | munchExp(tree) = raise IllegalTree
 
     in
       (munchStm stm;

@@ -2,6 +2,7 @@ signature FRAME =
 sig
   type frame
   type access
+  type register
 
   val FP: Temp.temp
   val RV: Temp.temp
@@ -24,6 +25,13 @@ sig
 
   val procEntryExit1 : frame * Tree.stm -> Tree.stm
 
+  val tempMap: register Temp.Table.table
+
+  val specialregs: register list
+  val argregs: register list
+  val calleesaves: register list
+  val callersaves: register list
+
   (* Debugging utility for printing a frag *)
   val printFrag: frag -> frag
 
@@ -40,6 +48,8 @@ struct
 
   datatype frag = PROC of {body: Tree.stm, frame: frame}
                 | STRING of Temp.label * string
+
+  type register = string
 
   val FP = Temp.newtemp()
   val RV = Temp.newtemp()
@@ -86,6 +96,16 @@ struct
     T.CALL(T.NAME(Temp.namedlabel(name)), args)
 
   fun procEntryExit1(frame, body) = body
+
+  val tempMap = Temp.Table.init([
+      (FP, "$fp"),
+      (RV, "$v0")
+    ])
+
+  val specialregs = ["$fp", "$v0", "$v1", "$sp", "$ra", "$0"]
+  val argregs = ["$a0", "$a1", "$a2", "$a3"]
+  val calleesaves = ["$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7"]
+  val callersaves = ["$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7", "$t8", "$t9"]
 
   fun printFrag(frag as PROC{body=stm, frame={name=name, formals=_, numLocals=_}}) =
         (print "\n\n"; Printtree.printtree(TextIO.stdOut, stm); frag)

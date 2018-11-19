@@ -13,20 +13,23 @@ structure Main = struct
       val stms' = Canon.traceSchedule(Canon.basicBlocks stms)
       val _ = (app (fn tree => Printtree.printtree(TextIO.stdOut, tree)) stms'; print("\n\n"))
 	    val instrs = List.concat(map (MipsCodegen.codegen frame) stms') 
-      val format0 = Assem.format(Temp.makestring)
+
+      fun tempName(temp) = Option.getOpt(Temp.Table.look(F.tempMap, temp), Temp.makestring(temp))
+
+      val format0 = Assem.format(tempName)
     in
-      app (fn i => TextIO.output(out,format0 i)) instrs
+      (app (fn i => TextIO.output(out,format0 i)) instrs; print("\n\n"))
     end
     
     | emitproc out (F.STRING(lab, s)) = TextIO.output(out, s)
 
   fun withOpenFile fname f = 
     let
-      val out = TextIO.stdOut (* TextIO.openOut fname *)
-      val closeOut = (fn _ => ()) (* TextIO.closeOut *)
+      val out = TextIO.stdOut (*TextIO.openOut fname*)
+      val closeOut = (fn _ => ()) (*TextIO.closeOut*)
     in
       (f out before closeOut out) 
-	    handle e => ((*TextIO.closeOut out*) (); raise e)
+	    handle e => (TextIO.closeOut out; raise e)
     end 
 
    fun compile filename = 
