@@ -25,8 +25,10 @@ structure Main = struct
 
   fun withOpenFile fname f = 
     let
-      val out = TextIO.stdOut (*TextIO.openOut fname*)
-      val closeOut = (fn _ => ()) (*TextIO.closeOut*)
+      val (out, closeOut) =
+        (*(TextIO.openOut fname, TextIO.closeOut)*)
+        (TextIO.stdOut, (fn _ => ()))
+      
     in
       (f out before closeOut out) 
 	    handle e => (TextIO.closeOut out; raise e)

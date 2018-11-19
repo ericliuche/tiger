@@ -27,10 +27,10 @@ sig
 
   val tempMap: register Temp.Table.table
 
-  val specialregs: register list
-  val argregs: register list
-  val calleesaves: register list
-  val callersaves: register list
+  val specialregs: (Temp.temp * register) list
+  val argregs: (Temp.temp * register) list
+  val calleesaves: (Temp.temp * register) list
+  val callersaves: (Temp.temp * register) list
 
   (* Debugging utility for printing a frag *)
   val printFrag: frag -> frag
@@ -97,15 +97,39 @@ struct
 
   fun procEntryExit1(frame, body) = body
 
-  val tempMap = Temp.Table.init([
-      (FP, "$fp"),
-      (RV, "$v0")
-    ])
+  (* Assign temps to all of the special MIPS registers and initialize the temp map *)
+  val (specialregs, argregs, calleesaves, callersaves, tempMap) =
+    let
+      val tempMap = ref (Temp.Table.init([
+        (FP, "$fp"),
+        (RV, "$v0")
+      ]))
 
-  val specialregs = ["$fp", "$v0", "$v1", "$sp", "$ra", "$0"]
-  val argregs = ["$a0", "$a1", "$a2", "$a3"]
-  val calleesaves = ["$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7"]
-  val callersaves = ["$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7", "$t8", "$t9"]
+      val specialregs = ["$fp", "$v0", "$v1", "$sp", "$ra", "$0"]
+      val argregs = ["$a0", "$a1", "$a2", "$a3"]
+      val calleesaves = ["$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7"]
+      val callersaves = ["$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7", "$t8", "$t9"]
+
+      fun initRegList(nil) = nil
+        | initRegList(reg :: rest) =
+            let
+              val temp = Temp.newtemp()
+            in
+
+              (* We handle FP and RV separately, so don't add them to the table twice *)
+              (if not (reg = "$fp") andalso not (reg = "$v0") then
+                tempMap := Temp.Table.enter(!tempMap, temp, reg)
+               else ();
+              
+              (temp, reg) :: initRegList(rest))
+            end
+    in
+      (initRegList specialregs,
+       initRegList argregs,
+       initRegList calleesaves,
+       initRegList callersaves,
+       !tempMap)
+    end
 
   fun printFrag(frag as PROC{body=stm, frame={name=name, formals=_, numLocals=_}}) =
         (print "\n\n"; Printtree.printtree(TextIO.stdOut, stm); frag)
