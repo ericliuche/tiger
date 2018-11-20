@@ -79,6 +79,18 @@ struct
                         dst=[],
                         jump=NONE})
 
+        | munchStm(T.MOVE(T.TEMP(temp), T.CALL(T.NAME(funcName), argExps))) =
+            emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
+                        src=munchArgs(0, argExps),
+                        dst=[],
+                        jump=SOME([funcName])})
+
+        | munchStm(T.MOVE(T.TEMP(temp), T.CONST(intVal))) =
+            emit(A.OPER{assem="li `d0, " ^ (Int.toString intVal) ^ "\n",
+                        src=[],
+                        dst=[temp],
+                        jump=NONE})
+
         | munchStm(T.MOVE(T.TEMP(temp), exp)) =
             emit(A.MOVE{assem="move `d0, `s0\n",
                         src=munchExp exp,
@@ -205,8 +217,52 @@ struct
                           dst=[r],
                           jump=NONE}))
 
+        | munchExp(T.CALL(T.NAME(funcName), argExps)) =
+            result(fn r =>
+              emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
+                          src=munchArgs(0, argExps),
+                          dst=[],
+                          jump=SOME([funcName])}))
 
-        | munchExp(tree) = raise IllegalTree
+        | munchExp(T.NAME(strLabel)) =
+            result(fn r =>
+              emit(A.OPER{assem="la `d0, " ^ (Symbol.name strLabel) ^ "\n",
+                          src=[],
+                          dst=[r],
+                          jump=NONE}))
+
+        | munchExp(tree) = (Printtree.printtree(TextIO.stdOut, T.EXP(tree)); raise IllegalTree)
+
+
+      (*
+        Move the first 4 arguments into a registers, then allocate the rest of
+        the arguments on the stack frame
+      *)
+      and munchArgs(idx, nil) = nil
+        | munchArgs(idx, argExp :: rest) =
+            if idx < (length(Frame.argregs) - 1) then
+              let
+                val (argTemp, argReg) = List.nth(Frame.argregs, idx)
+              in
+                (munchStm(T.MOVE(T.TEMP(argTemp), argExp));
+                 argTemp :: munchArgs(idx + 1, rest))
+              end
+
+            (* 
+              Once we start pushing args to the stack, do so in reverse order
+              so that they can be read in order by incrementing the address from
+              the frame pointer.
+            *)
+            else if idx = (length(Frame.argregs) - 1) then
+              (munchExp argExp) :: munchArgs(idx + 1, rev(rest))
+
+            else
+              (munchStm(T.MOVE(
+                Frame.exp(Frame.allocLocal(frame)(true))
+                                          (T.TEMP(Frame.FP)),
+                T.TEMP(munchExp(argExp))));
+              munchArgs(idx + 1, rest))
+
 
     in
       (munchStm stm;
