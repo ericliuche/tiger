@@ -82,7 +82,7 @@ struct
         | munchStm(T.MOVE(T.TEMP(temp), T.CALL(T.NAME(funcName), argExps))) =
             emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
                         src=munchArgs(0, argExps),
-                        dst=[],
+                        dst=[] (* TODO: add registers that get trashed *),
                         jump=SOME([funcName])})
 
         | munchStm(T.MOVE(T.TEMP(temp), T.CONST(intVal))) =
@@ -221,7 +221,7 @@ struct
             result(fn r =>
               emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
                           src=munchArgs(0, argExps),
-                          dst=[],
+                          dst=[] (* TODO: add registers that get trashed *),
                           jump=SOME([funcName])}))
 
         | munchExp(T.NAME(strLabel)) =

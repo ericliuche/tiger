@@ -53,6 +53,8 @@ struct
 
   val FP = Temp.newtemp()
   val RV = Temp.newtemp()
+  val RA = Temp.newtemp()
+
   val wordSize = 4
 
   fun name({name: Temp.label, formals: access list, numLocals: int ref}) = name
@@ -102,8 +104,11 @@ struct
     let
       val tempMap = ref (Temp.Table.init([
         (FP, "$fp"),
-        (RV, "$v0")
+        (RV, "$v0"),
+        (RA, "$ra")
       ]))
+
+      val alreadyAdded = ["$fp", "$v0", "$ra"]
 
       val specialregs = ["$fp", "$v0", "$v1", "$sp", "$ra", "$0"]
       val argregs = ["$a0", "$a1", "$a2", "$a3"]
@@ -117,7 +122,7 @@ struct
             in
 
               (* We handle FP and RV separately, so don't add them to the table twice *)
-              (if not (reg = "$fp") andalso not (reg = "$v0") then
+              (if not (List.exists(fn entry => entry = reg)(alreadyAdded)) then
                 tempMap := Temp.Table.enter(!tempMap, temp, reg)
                else ();
               
