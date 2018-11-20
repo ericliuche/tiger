@@ -6,6 +6,8 @@ sig
 
   val FP: Temp.temp
   val RV: Temp.temp
+  val RA: Temp.temp
+  val SP: Temp.temp
 
   val newFrame: {name: Temp.label, formals: bool list} -> frame
 
@@ -24,6 +26,8 @@ sig
   val externalCall: string * Tree.exp list -> Tree.exp
 
   val procEntryExit1 : frame * Tree.stm -> Tree.stm
+  val procEntryExit2 : frame * Assem.instr list -> Assem.instr list
+  val procEntryExit3 : frame * Assem.instr list -> {prolog: string, body: Assem.instr list, epilog: string}
 
   val tempMap: register Temp.Table.table
 
@@ -31,6 +35,9 @@ sig
   val argregs: (Temp.temp * register) list
   val calleesaves: (Temp.temp * register) list
   val callersaves: (Temp.temp * register) list
+
+  val tempList: (Temp.temp * register) list -> Temp.temp list
+  val registerList: (Temp.temp * register) list -> register list
 
   (* Debugging utility for printing a frag *)
   val printFrag: frag -> frag
@@ -54,6 +61,8 @@ struct
   val FP = Temp.newtemp()
   val RV = Temp.newtemp()
   val RA = Temp.newtemp()
+  val SP = Temp.newtemp()
+  val ZERO = Temp.newtemp()
 
   val wordSize = 4
 
@@ -71,14 +80,11 @@ struct
 
   fun newFrame({name: Temp.label, formals: bool list}) =
     let
-      val maxRegFormals = 4
-      val regCount = ref 0
       val frameCount = ref 0
 
       fun allocFormal(esc) =
-        if ((not esc) andalso (!regCount < maxRegFormals)) then
-          (regCount := !regCount + 1;
-           InReg(Temp.newtemp()))
+        if not esc then
+           InReg(Temp.newtemp())
         else
           (frameCount := !frameCount + 1;
            InFrame((!frameCount - 1) * wordSize))
@@ -97,18 +103,18 @@ struct
   fun externalCall(name, args) =
     T.CALL(T.NAME(Temp.namedlabel(name)), args)
 
-  fun procEntryExit1(frame, body) = body
-
   (* Assign temps to all of the special MIPS registers and initialize the temp map *)
   val (specialregs, argregs, calleesaves, callersaves, tempMap) =
     let
       val tempMap = ref (Temp.Table.init([
         (FP, "$fp"),
         (RV, "$v0"),
-        (RA, "$ra")
+        (RA, "$ra"),
+        (SP, "$sp"),
+        (ZERO, "$0")
       ]))
 
-      val alreadyAdded = ["$fp", "$v0", "$ra"]
+      val alreadyAdded = ["$fp", "$v0", "$ra", "$sp", "$0"]
 
       val specialregs = ["$fp", "$v0", "$v1", "$sp", "$ra", "$0"]
       val argregs = ["$a0", "$a1", "$a2", "$a3"]
@@ -135,6 +141,26 @@ struct
        initRegList callersaves,
        !tempMap)
     end
+
+  fun tempList(tempRegs) = map (fn (temp, reg) => temp) tempRegs
+
+  fun registerList(tempRegs) = map (fn (temp, reg) => reg) tempRegs
+
+
+
+  fun procEntryExit1(frame, body) = body
+
+  fun procEntryExit2(frame, body) =
+    body @ [Assem.OPER{assem="",
+                       src=(tempList (calleesaves @ specialregs)),
+                       dst=[],
+                       jump=SOME([])}]
+
+  fun procEntryExit3({name, formals, numLocals}, body) =
+    {prolog="PROCEDURE " ^ (Symbol.name name) ^ " \n",
+     body=body,
+     epilog="END " ^ (Symbol.name name) ^ " \n"}
+
 
   fun printFrag(frag as PROC{body=stm, frame={name=name, formals=_, numLocals=_}}) =
         (print "\n\n"; Printtree.printtree(TextIO.stdOut, stm); frag)

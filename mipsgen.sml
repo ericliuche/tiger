@@ -12,6 +12,10 @@ struct
   structure A = Assem
   structure T = Tree
 
+  val calldefs = Frame.tempList((Frame.argregs) @ (Frame.callersaves))
+
+  fun intToStr i = if (i < 0) then "-" ^ (Int.toString (~i)) else (Int.toString i)
+
   fun codegen(frame)(stm) =
     let
       val instrs = ref nil
@@ -61,20 +65,20 @@ struct
             end
 
         | munchStm(T.MOVE(T.MEM(T.BINOP(T.PLUS, exp1, T.CONST(intVal))), exp2)) =
-            emit(A.OPER{assem="sw `s0, " ^ (Int.toString intVal) ^ "(`s1)\n",
+            emit(A.OPER{assem="sw `s1, " ^ (Int.toString intVal) ^ "(`s0)\n",
                         src=[munchExp exp1, munchExp exp2],
                         dst=[],
                         jump=NONE})
 
         | munchStm(T.MOVE(T.MEM(T.BINOP(T.PLUS, T.CONST(intVal), exp1)), exp2)) =
-            emit(A.OPER{assem="sw `s0, " ^ (Int.toString intVal) ^ "(`s1)\n",
+            emit(A.OPER{assem="sw `s1, " ^ (intToStr intVal) ^ "(`s0)\n",
                         src=[munchExp exp1, munchExp exp2],
                         dst=[],
                         jump=NONE})
 
 
         | munchStm(T.MOVE(T.MEM(exp1), exp2)) =
-            emit(A.OPER{assem="sw `s0, `s1\n",
+            emit(A.OPER{assem="sw `s1, `s0\n",
                         src=[munchExp exp1, munchExp exp2],
                         dst=[],
                         jump=NONE})
@@ -82,11 +86,11 @@ struct
         | munchStm(T.MOVE(T.TEMP(temp), T.CALL(T.NAME(funcName), argExps))) =
             emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
                         src=munchArgs(0, argExps),
-                        dst=[] (* TODO: add registers that get trashed *),
+                        dst=calldefs,
                         jump=SOME([funcName])})
 
         | munchStm(T.MOVE(T.TEMP(temp), T.CONST(intVal))) =
-            emit(A.OPER{assem="li `d0, " ^ (Int.toString intVal) ^ "\n",
+            emit(A.OPER{assem="li `d0, " ^ (intToStr intVal) ^ "\n",
                         src=[],
                         dst=[temp],
                         jump=NONE})
@@ -96,19 +100,25 @@ struct
                         src=munchExp exp,
                         dst=temp})
 
+        | munchStm(T.EXP(T.CALL(T.NAME(funcName), argExps))) =
+            emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
+                        src=munchArgs(0, argExps),
+                        dst=calldefs,
+                        jump=SOME([funcName])})
+
         | munchStm(_) = raise IllegalTree
 
 
       and munchExp(T.BINOP(T.PLUS, T.CONST(intVal), exp)) =
             result(fn r =>
-              emit(A.OPER{assem="addi `d0, `s0, " ^ (Int.toString intVal) ^ "\n",
+              emit(A.OPER{assem="addi `d0, `s0, " ^ (intToStr intVal) ^ "\n",
                           src=[munchExp exp],
                           dst=[r],
                           jump=NONE}))
 
         | munchExp(T.BINOP(T.PLUS, exp, T.CONST(intVal))) =
             result(fn r =>
-              emit(A.OPER{assem="addi `d0, `s0, " ^ (Int.toString intVal) ^ "\n",
+              emit(A.OPER{assem="addi `d0, `s0, " ^ (intToStr intVal) ^ "\n",
                           src=[munchExp exp],
                           dst=[r],
                           jump=NONE}))
@@ -123,7 +133,7 @@ struct
 
         | munchExp(T.BINOP(T.MINUS, exp, T.CONST(intVal))) =
             result(fn r =>
-              emit(A.OPER{assem="sub `d0, `s0, " ^ (Int.toString intVal) ^ "\n",
+              emit(A.OPER{assem="sub `d0, `s0, " ^ (intToStr intVal) ^ "\n",
                           src=[munchExp exp],
                           dst=[r],
                           jump=NONE}))
@@ -131,14 +141,14 @@ struct
 
         | munchExp(T.BINOP(T.MUL, T.CONST(intVal), exp)) =
             result(fn r =>
-              emit(A.OPER{assem="mul `d0, `s0, " ^ (Int.toString intVal) ^ "\n",
+              emit(A.OPER{assem="mul `d0, `s0, " ^ (intToStr intVal) ^ "\n",
                           src=[munchExp exp],
                           dst=[r],
                           jump=NONE}))
 
         | munchExp(T.BINOP(T.MUL, exp, T.CONST(intVal))) =
             result(fn r =>
-              emit(A.OPER{assem="mul `d0, `s0, " ^ (Int.toString intVal) ^ "\n",
+              emit(A.OPER{assem="mul `d0, `s0, " ^ (intToStr intVal) ^ "\n",
                           src=[munchExp exp],
                           dst=[r],
                           jump=NONE}))
@@ -146,7 +156,7 @@ struct
 
         | munchExp(T.BINOP(T.DIV, exp, T.CONST(intVal))) =
             result(fn r =>
-              emit(A.OPER{assem="div `d0, `s0, " ^ (Int.toString intVal) ^ "\n",
+              emit(A.OPER{assem="div `d0, `s0, " ^ (intToStr intVal) ^ "\n",
                           src=[munchExp exp],
                           dst=[r],
                           jump=NONE}))
@@ -183,21 +193,21 @@ struct
 
         | munchExp(T.MEM(T.BINOP(T.PLUS, exp, T.CONST(intVal)))) =
             result(fn r =>
-              emit(A.OPER{assem="lw `d0, " ^ (Int.toString intVal) ^ "(`s0)\n",
+              emit(A.OPER{assem="lw `d0, " ^ (intToStr intVal) ^ "(`s0)\n",
                           src=[munchExp exp],
                           dst=[r],
                           jump=NONE}))
 
         | munchExp(T.MEM(T.BINOP(T.PLUS, T.CONST(intVal), exp))) =
             result(fn r =>
-              emit(A.OPER{assem="lw `d0, " ^ (Int.toString intVal) ^ "(`s0)\n",
+              emit(A.OPER{assem="lw `d0, " ^ (intToStr intVal) ^ "(`s0)\n",
                           src=[munchExp exp],
                           dst=[r],
                           jump=NONE}))
 
         | munchExp(T.MEM(T.CONST(intVal))) =
             result(fn r =>
-              emit(A.OPER{assem="lw `d0, " ^ (Int.toString intVal) ^ "\n",
+              emit(A.OPER{assem="lw `d0, " ^ (intToStr intVal) ^ "($0)\n",
                           src=[],
                           dst=[r],
                           jump=NONE}))        
@@ -212,17 +222,11 @@ struct
 
         | munchExp(T.CONST(intVal)) =
             result(fn r =>
-              emit(A.OPER{assem="li `d0, " ^ (Int.toString intVal) ^ "\n",
+              emit(A.OPER{assem="li `d0, " ^ (intToStr intVal) ^ "\n",
                           src=[],
                           dst=[r],
                           jump=NONE}))
 
-        | munchExp(T.CALL(T.NAME(funcName), argExps)) =
-            result(fn r =>
-              emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
-                          src=munchArgs(0, argExps),
-                          dst=[] (* TODO: add registers that get trashed *),
-                          jump=SOME([funcName])}))
 
         | munchExp(T.NAME(strLabel)) =
             result(fn r =>
@@ -240,29 +244,27 @@ struct
       *)
       and munchArgs(idx, nil) = nil
         | munchArgs(idx, argExp :: rest) =
-            if idx < (length(Frame.argregs) - 1) then
-              let
-                val (argTemp, argReg) = List.nth(Frame.argregs, idx)
-              in
-                (munchStm(T.MOVE(T.TEMP(argTemp), argExp));
-                 argTemp :: munchArgs(idx + 1, rest))
-              end
+            let val numRegs = length(Frame.argregs) in
+              if idx < numRegs then
+                let
+                  val (argTemp, argReg) = List.nth(Frame.argregs, idx)
+                in
+                  (munchStm(T.MOVE(T.TEMP(argTemp), argExp));
 
-            (* 
-              Once we start pushing args to the stack, do so in reverse order
-              so that they can be read in order by incrementing the address from
-              the frame pointer.
-            *)
-            else if idx = (length(Frame.argregs) - 1) then
-              (munchExp argExp) :: munchArgs(idx + 1, rev(rest))
-
-            else
-              (munchStm(T.MOVE(
-                Frame.exp(Frame.allocLocal(frame)(true))
-                                          (T.TEMP(Frame.FP)),
-                T.TEMP(munchExp(argExp))));
-              munchArgs(idx + 1, rest))
-
+                  (* 
+                    Once we start pushing args to the stack, do so in reverse order
+                    so that they can be read in order by incrementing the address from
+                    the frame pointer.
+                  *)
+                  argTemp :: munchArgs(idx + 1, (if idx = (numRegs - 1) then rev(rest) else rest)))
+                end
+              else
+                (munchStm(T.MOVE(
+                  Frame.exp(Frame.allocLocal(frame)(true))
+                                            (T.TEMP(Frame.FP)),
+                  T.TEMP(munchExp(argExp))));
+                munchArgs(idx + 1, rest))
+            end
 
     in
       (munchStm stm;
