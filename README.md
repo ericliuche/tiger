@@ -1,26 +1,19 @@
-# Intermediate Representation Translation
+# Instruction Selection
 
 ### Nick Flanders and Chenyang Eric Liu
 
-Our Translate module exposes an interface to produce an IR tree from
-a given abstract syntax expression or declaration. All of the translation
-functions produce a Translate.exp which is internally recognizable as
-an Ex value, an Nx statement, or a Cx control flow handler. Boolean
-translations are converted to nested if-then(-else) statements, so our
-translator handles these special cases to ensure that the nested control
-flow operations produce relatively efficient IR code.
+Our Codegen module exposes a single curried function to produce assembler
+instructions from a given frame and Tree expression. Our munchArgs function
+handles function calls with more than 4 arguments by first using the $a0
+through $a3 registers and then by adding the remaining arguments to the
+frame in reverse order as dictated by the MIPS calling convention.
 
-We define two exception types, IllegalProgramException and
-OutermostLevelException, which are never raised in valid Tiger programs.
+We have extended our MipsFrame implementation to make the necessary
+associations between actual MIPS registers and the temps which will represent
+them. In addition to the lists of caller-saves, callee-saves, special
+registers, and argument registers, we have defined explicit references to the
+return address and stack pointer registers as these are needed for the temp
+lists which will be used during liveness analysis.
 
-To resolve a variable reference across lexical scopes, we defined a
-recursive function with an accumulator that consists of the IR tree
-required to reach the frame pointer for the current lexical level.
-
-Additionally, we build our list of Translate.frags in reverse order to
-be more efficient and then reverse the list when it is retrieved after
-translation. We also define a Translate interface function to reset the
-translated frags to allow for multiple files to be compiled per invocation.
-
-Finally, we define a few debugging utilities to easily print IR trees and
-frags to standard out, although these are not called during translation.
+A Tiger implementation of a factorial function and the corresponding assembler
+representation are located in the examples directory.

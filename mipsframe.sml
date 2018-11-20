@@ -36,6 +36,7 @@ sig
   val calleesaves: (Temp.temp * register) list
   val callersaves: (Temp.temp * register) list
 
+  (* Retrieve the temps or registers respectively from a list of (register * temp) *)
   val tempList: (Temp.temp * register) list -> Temp.temp list
   val registerList: (Temp.temp * register) list -> register list
 
@@ -78,22 +79,6 @@ struct
       alloc
     end
 
-  fun newFrame({name: Temp.label, formals: bool list}) =
-    let
-      val frameCount = ref 0
-
-      fun allocFormal(esc) =
-        if not esc then
-           InReg(Temp.newtemp())
-        else
-          (frameCount := !frameCount + 1;
-           InFrame((!frameCount - 1) * wordSize))
-
-    in
-      {name=name, formals=map allocFormal formals, numLocals=ref 0}
-    end
-
-
   structure T = Tree
   
   fun exp(InReg(temp)) = (fn (exp) => T.TEMP temp)
@@ -127,7 +112,7 @@ struct
               val temp = Temp.newtemp()
             in
 
-              (* We handle FP and RV separately, so don't add them to the table twice *)
+              (* We handle several special registers separately, so don't add them to the table twice *)
               (if not (List.exists(fn entry => entry = reg)(alreadyAdded)) then
                 tempMap := Temp.Table.enter(!tempMap, temp, reg)
                else ();
@@ -146,6 +131,21 @@ struct
 
   fun registerList(tempRegs) = map (fn (temp, reg) => reg) tempRegs
 
+
+  fun newFrame({name: Temp.label, formals: bool list}) =
+    let
+      val frameCount = ref 0
+
+      fun allocFormal(esc) =
+        if not esc then
+          InReg(Temp.newtemp())
+        else
+          (frameCount := !frameCount + 1;
+           InFrame((!frameCount - 1) * wordSize))
+
+    in
+      {name=name, formals=map allocFormal formals, numLocals=ref 0}
+    end
 
 
   fun procEntryExit1(frame, body) = body

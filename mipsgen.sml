@@ -12,6 +12,7 @@ struct
   structure A = Assem
   structure T = Tree
 
+  (* Temps which become trashed during procedure calls *)
   val calldefs = Frame.tempList((Frame.argregs) @ (Frame.callersaves))
 
   fun intToStr i = if (i < 0) then "-" ^ (Int.toString (~i)) else (Int.toString i)
@@ -20,8 +21,13 @@ struct
     let
       val instrs = ref nil
 
+      (* Accumulate an instruction list in reverse order *)
       fun emit(instr) = instrs := (instr :: !instrs)
 
+      (*
+        Generate a new temp as the destination for the assembler block built by
+        the given generator
+      *)
       fun result(gen) =
         let
           val t = Temp.newtemp()
@@ -29,19 +35,25 @@ struct
           (gen t; t)
         end
 
+      (* Thrown if a tree does not map to a MIPS instruction *)
       exception IllegalTree
 
+
+          (* Sequence of stms *)
       fun munchStm(T.SEQ(a, b)) = (munchStm a; munchStm b)
 
+          (* Labels *)
         | munchStm(T.LABEL(label)) =
             emit(A.LABEL{assem=(Symbol.name label) ^ ":\n", lab=label})
 
+          (* Unconditional jumps *)
         | munchStm(T.JUMP(T.NAME(label), labels)) =
             emit(A.OPER{assem="j " ^ (Symbol.name label) ^ "\n",
                         src=[],
                         dst=[],
                         jump=SOME(labels)})
 
+          (* Conditional jumps *)
         | munchStm(T.CJUMP(relop, exp1, exp2, trueLabel, falseLabel)) =
             let
               val relopAssem = case relop of
@@ -64,6 +76,7 @@ struct
                           jump=SOME([trueLabel, falseLabel])})
             end
 
+          (* Stores to memory *)
         | munchStm(T.MOVE(T.MEM(T.BINOP(T.PLUS, exp1, T.CONST(intVal))), exp2)) =
             emit(A.OPER{assem="sw `s1, " ^ (Int.toString intVal) ^ "(`s0)\n",
                         src=[munchExp exp1, munchExp exp2],
@@ -83,12 +96,14 @@ struct
                         dst=[],
                         jump=NONE})
 
+          (* Function calls *)
         | munchStm(T.MOVE(T.TEMP(temp), T.CALL(T.NAME(funcName), argExps))) =
             emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
                         src=munchArgs(0, argExps),
                         dst=calldefs,
                         jump=SOME([funcName])})
 
+          (* Stores to registers *)
         | munchStm(T.MOVE(T.TEMP(temp), T.CONST(intVal))) =
             emit(A.OPER{assem="li `d0, " ^ (intToStr intVal) ^ "\n",
                         src=[],
@@ -100,6 +115,7 @@ struct
                         src=munchExp exp,
                         dst=temp})
 
+          (* Procedure calls *)
         | munchStm(T.EXP(T.CALL(T.NAME(funcName), argExps))) =
             emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
                         src=munchArgs(0, argExps),
@@ -109,6 +125,7 @@ struct
         | munchStm(_) = raise IllegalTree
 
 
+          (* Immediate arithmetic operations *)
       and munchExp(T.BINOP(T.PLUS, T.CONST(intVal), exp)) =
             result(fn r =>
               emit(A.OPER{assem="addi `d0, `s0, " ^ (intToStr intVal) ^ "\n",
@@ -162,6 +179,7 @@ struct
                           jump=NONE}))
 
 
+          (* Non-immediate arithmetic and logical operations *)
         | munchExp(T.BINOP(binop, exp1, exp2)) =
             let
               val binopAssem = case binop of
@@ -183,14 +201,14 @@ struct
                             jump=NONE}))
             end
 
-
+          (* Moves from a temp *)
         | munchExp(T.TEMP(temp)) =
             result(fn r =>
               emit(A.MOVE{assem="move `d0, `s0\n",
                           src=temp,
                           dst=r}))
 
-
+          (* Loads from memory *)
         | munchExp(T.MEM(T.BINOP(T.PLUS, exp, T.CONST(intVal)))) =
             result(fn r =>
               emit(A.OPER{assem="lw `d0, " ^ (intToStr intVal) ^ "(`s0)\n",
@@ -219,7 +237,7 @@ struct
                           dst=[r],
                           jump=NONE}))
 
-
+          (* Immediate loads *)
         | munchExp(T.CONST(intVal)) =
             result(fn r =>
               emit(A.OPER{assem="li `d0, " ^ (intToStr intVal) ^ "\n",
@@ -227,7 +245,7 @@ struct
                           dst=[r],
                           jump=NONE}))
 
-
+          (* References to string labels *)
         | munchExp(T.NAME(strLabel)) =
             result(fn r =>
               emit(A.OPER{assem="la `d0, " ^ (Symbol.name strLabel) ^ "\n",

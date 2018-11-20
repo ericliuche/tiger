@@ -12,13 +12,17 @@ structure Main = struct
 	    val stms = Canon.linearize body
       val stms' = Canon.traceSchedule(Canon.basicBlocks stms)
       val _ = (app (fn tree => Printtree.printtree(TextIO.stdOut, tree)) stms'; print("\n\n"))
-	    val instrs = List.concat(map (MipsCodegen.codegen frame) stms') 
+	    val instrs = List.concat(map (MipsCodegen.codegen frame) stms')
+      val instrs' = F.procEntryExit2(frame, instrs)
+      val {prolog, body=instrs'', epilog} = F.procEntryExit3(frame, instrs')
 
       fun tempName(temp) = Option.getOpt(Temp.Table.look(F.tempMap, temp), Temp.makestring(temp))
 
       val format0 = Assem.format(tempName)
     in
-      (app (fn i => TextIO.output(out,format0 i)) instrs; print("\n\n"))
+      (TextIO.output(out, prolog);
+       app (fn i => TextIO.output(out,format0 i)) instrs'';
+       TextIO.output(out, epilog))
     end
     
     | emitproc out (F.STRING(lab, s)) = TextIO.output(out, s)
