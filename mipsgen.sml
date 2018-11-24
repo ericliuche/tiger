@@ -253,6 +253,15 @@ struct
                           dst=[r],
                           jump=NONE}))
 
+        (* Procedure calls *)
+        | munchExp(T.CALL(T.NAME(funcName), argExps)) =
+            result(fn r =>
+              emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
+                          src=munchArgs(0, argExps),
+                          dst=calldefs,
+                          jump=SOME([funcName])}))
+
+
         | munchExp(tree) = (Printtree.printtree(TextIO.stdOut, T.EXP(tree)); raise IllegalTree)
 
 
