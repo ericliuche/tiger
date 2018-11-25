@@ -16,6 +16,8 @@ structure Main = struct
       val instrs' = F.procEntryExit2(frame, instrs)
       val {prolog, body=instrs'', epilog} = F.procEntryExit3(frame, instrs')
 
+      val (cfg, nodes) = MakeGraph.instrs2graph instrs''
+
       fun tempName(temp) = Option.getOpt(Temp.Table.look(F.tempMap, temp), Temp.makestring(temp))
 
       val format0 = Assem.format(tempName)

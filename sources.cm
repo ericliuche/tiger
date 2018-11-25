@@ -25,6 +25,7 @@ assem.sml
 graph.sig
 graph.sml
 flowgraph.sml
+makegraph.sml
 main.sml
 $/ml-yacc-lib.cm
 $/smlnj-lib.cm
