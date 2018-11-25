@@ -25,7 +25,7 @@ struct
 
   fun interferenceGraph(fg as Flow.FGRAPH{control, def, use, ismove}) =
     let      
-      val nodes = Graph.nodes control
+      val nodes = FG.nodes control
 
       fun findOrErrorGraph(table, node) = 
         case Graph.Table.look(table, node) of
@@ -54,27 +54,24 @@ struct
 
               val inSet' = 
                 Temp.Set.union(
-                  Temp.Set.union(inSet, useSet), 
+                  useSet, 
                   Temp.Set.difference(outSet, defSet))
 
-              val outSet' = Temp.Set.union(outSet,
+              val outSet' = 
                 foldl 
-                (fn (node, succIns) => Temp.Set.union(succIns, findOrErrorGraph(liveIn, node))) 
+                (fn (node, succIns) => Temp.Set.union(succIns, findOrErrorGraph(liveIn, node)))
                 (Temp.Set.empty) 
-                (FG.succ node))
+                (FG.succ node)
             in
               (Graph.Table.enter(liveIn, node, inSet'),
                Graph.Table.enter(liveOut, node, outSet'),
                fixPoint andalso Temp.Set.equal(inSet, inSet') andalso Temp.Set.equal(outSet, outSet'))
             end
 
-          fun updateNodes(liveIn, liveOut) = 
-            foldl updateNode (liveIn, liveOut, true) nodes
-
-          val (liveIn', liveOut', fixPoint) = updateNodes(liveIn, liveOut)
+          val (liveIn', liveOut', fixPoint) = foldl updateNode (liveIn, liveOut, true) nodes
         in 
           if fixPoint then 
-            (liveIn', liveOut')
+            (liveIn, liveOut)
           else
             liveness(liveIn', liveOut')
         end
@@ -157,7 +154,7 @@ struct
 
       fun printNode(node) = 
         (printTemp(gtemp node);
-         printString(":\n\t");
+         printString(":\t");
           (foldl 
            (fn (t, _) => (printTemp(t); printString(","))) 
            () 

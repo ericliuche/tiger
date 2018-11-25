@@ -17,6 +17,7 @@ structure Main = struct
       val {prolog, body=instrs'', epilog} = F.procEntryExit3(frame, instrs')
 
       val (cfg, nodes) = MakeGraph.instrs2graph instrs''
+
       val (ig, liveout) = Liveness.interferenceGraph cfg
       val _ = Liveness.show(TextIO.stdOut, ig) 
 

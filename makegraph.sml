@@ -14,7 +14,7 @@ struct
       val nodes = map (fn _ => FG.newNode(flowGraph)) asm
       val nodeInstrs = ListPair.zip(nodes, asm)
 
-      fun buildGraph((node, instr), (def, use, ismove, labelMap)) =
+      fun buildNodes((node, instr), (def, use, ismove, labelMap)) =
           case instr of
             Assem.OPER{assem, dst, src, jump} =>
               (FG.Table.enter(def, node, dst),
@@ -35,28 +35,36 @@ struct
                Symbol.enter(labelMap, lab, node))
 
       val init = (FG.Table.empty, FG.Table.empty, FG.Table.empty, Symbol.empty)
-      val (def, use, ismove, labelMap) = foldl buildGraph init nodeInstrs
+      val (def, use, ismove, labelMap) = foldl buildNodes init nodeInstrs
 
-      fun processJump((node, Assem.OPER{assem, dst, src, jump=SOME(labels)})) = 
+      fun buildEdges((node, Assem.OPER{assem, dst, src, jump=SOME(labels)}), prevNode) = 
         let 
           fun addEdge(label) = 
             case Symbol.look(labelMap, label) of 
               SOME(labelNode) => FG.mk_edge({from=node, to=labelNode})
             | NONE => 
                 if String.isPrefix "jal" assem then
-                  ()
+                  case prevNode of
+                      SOME(n) => FG.mk_edge({from=n, to=node})
+                    | NONE => ()
                 else
                   (ErrorMsg.impossible "missing label")
         in
-          app addEdge labels
+          (app addEdge labels;
+           SOME(node))
         end
-      | processJump(_, _) = ()
+      | buildEdges((node, _), prevNode) = 
+          (case prevNode of
+            SOME(n) => FG.mk_edge({from=n, to=node})
+          | NONE => ();
+          SOME(node))
+
+      val _ = foldl buildEdges NONE nodeInstrs
     in
-      (app processJump nodeInstrs;
        (Flow.FGRAPH{control=flowGraph, 
                     def=def, 
                     use=use,
                     ismove=ismove}, 
-        nodes))
+        nodes)
     end
 end
