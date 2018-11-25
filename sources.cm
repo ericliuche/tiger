@@ -26,6 +26,7 @@ graph.sig
 graph.sml
 flowgraph.sml
 makegraph.sml
+liveliness.sml
 main.sml
 $/ml-yacc-lib.cm
 $/smlnj-lib.cm

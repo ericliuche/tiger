@@ -8,6 +8,8 @@ struct
     structure Table = IntMapTable(type key = int
 				  fun getInt n = n)
 
+    structure Set = IntListSet
+
     fun makestring t = "t" ^ Int.toString t
 
   type label = Symbol.symbol
