@@ -29,7 +29,10 @@ struct
                labelMap)
 
           | Assem.LABEL{assem, lab} =>
-              (def, use, ismove, Symbol.enter(labelMap, lab, node))
+              (FG.Table.enter(def, node, []),
+               FG.Table.enter(use, node, []),
+               FG.Table.enter(ismove, node, false),
+               Symbol.enter(labelMap, lab, node))
 
       val init = (FG.Table.empty, FG.Table.empty, FG.Table.empty, Symbol.empty)
       val (def, use, ismove, labelMap) = foldl buildGraph init nodeInstrs

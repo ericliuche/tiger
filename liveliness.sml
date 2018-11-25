@@ -27,9 +27,6 @@ struct
     let      
       val nodes = Graph.nodes control
 
-      fun initLiveSet() = 
-        foldl (fn (node, table) => Graph.Table.enter(table, node, Temp.Set.empty)) Graph.Table.empty nodes
-
       fun findOrErrorGraph(table, node) = 
         case Graph.Table.look(table, node) of
           SOME(v) => v
@@ -44,14 +41,13 @@ struct
         case findOrErrorGraph(table, node) of
           item::[] => item
         | item::items => ErrorMsg.impossible "expected one item"
-        | [] => ErrorMsg.impossible "no nodes"
-
+        | [] => ErrorMsg.impossible "no items"
 
       fun liveness(liveIn, liveOut) = 
         let
           fun updateNode(node, (liveIn, liveOut, fixPoint)) = 
             let
-              val inSet = findOrErrorGraph(liveIn, node)
+              val inSet = findOrErrorGraph(liveIn, node)              
               val outSet = findOrErrorGraph(liveOut, node)
               val useSet = Temp.Set.addList(Temp.Set.empty, findOrErrorGraph(use, node))
               val defSet = Temp.Set.addList(Temp.Set.empty, findOrErrorGraph(def, node))
@@ -73,7 +69,7 @@ struct
             end
 
           fun updateNodes(liveIn, liveOut) = 
-            foldl (updateNode) (liveIn, liveOut, true) (nodes)
+            foldl updateNode (liveIn, liveOut, true) nodes
 
           val (liveIn', liveOut', fixPoint) = updateNodes(liveIn, liveOut)
         in 
@@ -82,6 +78,12 @@ struct
           else
             liveness(liveIn', liveOut')
         end
+
+      fun initLiveSet() = 
+        foldl 
+        (fn (node, table) => (Graph.Table.enter(table, node, Temp.Set.empty)))
+        Graph.Table.empty 
+        nodes
 
       val (liveIn, liveOut) = liveness(initLiveSet(), initLiveSet())
       val iGraph = Graph.newGraph()
@@ -148,5 +150,29 @@ struct
     end
 
   fun show(out, IGRAPH{graph, tnode, gtemp, moves}) =
-    ()
+    let
+      fun printTemp(temp) = TextIO.output(out, "t" ^ Int.toString(temp))
+      
+      fun printString(str) = TextIO.output(out, str)
+
+      fun printNode(node) = 
+        (printTemp(gtemp node);
+         printString(":\n\t");
+          (foldl 
+           (fn (t, _) => (printTemp(t); printString(","))) 
+           () 
+           (map gtemp (Graph.adj node)));
+         printString("\n"))
+
+      fun printMove(node1, node2) = 
+        (printTemp(gtemp node1);
+         printString(" - ");
+         printTemp(gtemp node2);
+         printString("\n"))
+    in
+      (printString("interference graph: \n");
+       app printNode (Graph.nodes graph);
+       printString("moves: \n");
+       app printMove moves)
+    end
 end

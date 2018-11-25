@@ -18,7 +18,7 @@ structure Main = struct
 
       val (cfg, nodes) = MakeGraph.instrs2graph instrs''
       val (ig, liveout) = Liveness.interferenceGraph cfg
-      (*val _ = Liveness.show(TextIO.stdOut, ig) *)
+      val _ = Liveness.show(TextIO.stdOut, ig) 
 
       fun tempName(temp) = Option.getOpt(Temp.Table.look(F.tempMap, temp), Temp.makestring(temp))
 
@@ -34,8 +34,8 @@ structure Main = struct
   fun withOpenFile fname f = 
     let
       val (out, closeOut) =
-        (*(TextIO.openOut fname, TextIO.closeOut)*)
-        (TextIO.stdOut, (fn _ => ()))
+        (TextIO.openOut fname, TextIO.closeOut)
+        (*(TextIO.stdOut, (fn _ => ()))*)
       
     in
       (f out before closeOut out) 
