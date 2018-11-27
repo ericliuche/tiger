@@ -16,6 +16,7 @@ end
 structure Liveness : LIVENESS = 
 struct
   structure FG = Flow.Graph
+  structure Frame = MipsFrame
 
   datatype igraph = 
     IGRAPH of {graph: Graph.graph,
@@ -148,7 +149,7 @@ struct
 
   fun show(out, IGRAPH{graph, tnode, gtemp, moves}) =
     let
-      fun printTemp(temp) = TextIO.output(out, "t" ^ Int.toString(temp))
+      fun printTemp(temp) = TextIO.output(out, Frame.tempName(temp))
       
       fun printString(str) = TextIO.output(out, str)
 

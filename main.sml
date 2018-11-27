@@ -21,13 +21,13 @@ structure Main = struct
       val (ig, liveout) = Liveness.interferenceGraph cfg
       val _ = Liveness.show(TextIO.stdOut, ig) 
 
-      fun tempName(temp) = Option.getOpt(Temp.Table.look(F.tempMap, temp), Temp.makestring(temp))
-
-      val format0 = Assem.format(tempName)
+      val format0 = Assem.format(F.tempName)
     in
-      (TextIO.output(out, prolog);
-       app (fn i => TextIO.output(out,format0 i)) instrs'';
-       TextIO.output(out, epilog))
+      print("\n\n");
+      TextIO.output(out, prolog);
+      app (fn i => TextIO.output(out,format0 i)) instrs'';
+      TextIO.output(out, epilog);
+      print("\n\n")
     end
     
     | emitproc out (F.STRING(lab, s)) = TextIO.output(out, s)
@@ -35,8 +35,8 @@ structure Main = struct
   fun withOpenFile fname f = 
     let
       val (out, closeOut) =
-        (TextIO.openOut fname, TextIO.closeOut)
-        (*(TextIO.stdOut, (fn _ => ()))*)
+        (*(TextIO.openOut fname, TextIO.closeOut)*)
+        (TextIO.stdOut, (fn _ => ()))
       
     in
       (f out before closeOut out) 

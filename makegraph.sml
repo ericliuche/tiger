@@ -45,7 +45,7 @@ struct
             | NONE => 
                 if String.isPrefix "jal" assem then
                   case prevNode of
-                      SOME(n) => FG.mk_edge({from=n, to=node})
+                      SOME(n) => FG.mk_edge({from=node, to=n})
                     | NONE => ()
                 else
                   (ErrorMsg.impossible "missing label")
@@ -55,11 +55,11 @@ struct
         end
       | buildEdges((node, _), prevNode) = 
           (case prevNode of
-            SOME(n) => FG.mk_edge({from=n, to=node})
+            SOME(n) => FG.mk_edge({from=node, to=n})
           | NONE => ();
           SOME(node))
 
-      val _ = foldl buildEdges NONE nodeInstrs
+      val _ = foldr buildEdges NONE nodeInstrs
     in
        (Flow.FGRAPH{control=flowGraph, 
                     def=def, 

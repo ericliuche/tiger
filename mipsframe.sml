@@ -43,6 +43,8 @@ sig
   (* Debugging utility for printing a frag *)
   val printFrag: frag -> frag
 
+  val tempName: Temp.temp -> string
+
 end
 
 (* A FRAME implementation targeting the MIPS architecture *)
@@ -88,6 +90,8 @@ struct
   fun externalCall(name, args) =
     T.CALL(T.NAME(Temp.namedlabel(name)), args)
 
+
+
   (* Assign temps to all of the special MIPS registers and initialize the temp map *)
   val (specialregs, argregs, calleesaves, callersaves, tempMap) =
     let
@@ -99,9 +103,6 @@ struct
         (ZERO, "$0")
       ]))
 
-      val alreadyAdded = ["$fp", "$v0", "$ra", "$sp", "$0"]
-
-      val specialregs = ["$fp", "$v0", "$v1", "$sp", "$ra", "$0"]
       val argregs = ["$a0", "$a1", "$a2", "$a3"]
       val calleesaves = ["$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7"]
       val callersaves = ["$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7", "$t8", "$t9"]
@@ -111,16 +112,11 @@ struct
             let
               val temp = Temp.newtemp()
             in
-
-              (* We handle several special registers separately, so don't add them to the table twice *)
-              (if not (List.exists(fn entry => entry = reg)(alreadyAdded)) then
-                tempMap := Temp.Table.enter(!tempMap, temp, reg)
-               else ();
-              
-              (temp, reg) :: initRegList(rest))
+              tempMap := Temp.Table.enter(!tempMap, temp, reg);
+              (temp, reg) :: initRegList(rest)
             end
     in
-      (initRegList specialregs,
+      ([(FP, "$fp"), (RV, "$rv"), (RA, "$ra"), (SP, "$sp"), (ZERO, "$0")],
        initRegList argregs,
        initRegList calleesaves,
        initRegList callersaves,
@@ -161,6 +157,7 @@ struct
      body=body,
      epilog="END " ^ (Symbol.name name) ^ " \n"}
 
+  fun tempName(temp) = Option.getOpt(Temp.Table.look(tempMap, temp), Temp.makestring(temp))
 
   fun printFrag(frag as PROC{body=stm, frame={name=name, formals=_, numLocals=_}}) =
         (print "\n\n"; Printtree.printtree(TextIO.stdOut, stm); frag)
