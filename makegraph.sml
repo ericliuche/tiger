@@ -37,14 +37,15 @@ struct
       val init = (FG.Table.empty, FG.Table.empty, FG.Table.empty, Symbol.empty)
       val (def, use, ismove, labelMap) = foldl buildNodes init nodeInstrs
 
-      fun buildEdges((node, Assem.OPER{assem, dst, src, jump=SOME(labels)}), prevNode) = 
+      fun buildEdges((node, Assem.OPER{assem, dst, src, jump=SOME(labels)}), nextNode) = 
         let 
           fun addEdge(label) = 
             case Symbol.look(labelMap, label) of 
               SOME(labelNode) => FG.mk_edge({from=node, to=labelNode})
-            | NONE => 
+            | NONE =>
+                (* If we are jumping to an unknown label, it better be a different procedure. *)
                 if String.isPrefix "jal" assem then
-                  case prevNode of
+                  case nextNode of
                       SOME(n) => FG.mk_edge({from=node, to=n})
                     | NONE => ()
                 else
@@ -53,8 +54,8 @@ struct
           (app addEdge labels;
            SOME(node))
         end
-      | buildEdges((node, _), prevNode) = 
-          (case prevNode of
+      | buildEdges((node, _), nextNode) = 
+          (case nextNode of
             SOME(n) => FG.mk_edge({from=node, to=n})
           | NONE => ();
           SOME(node))
