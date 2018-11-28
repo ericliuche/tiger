@@ -98,10 +98,13 @@ struct
 
           (* Function calls *)
         | munchStm(T.MOVE(T.TEMP(temp), T.CALL(T.NAME(funcName), argExps))) =
-            emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
+            (emit(A.OPER{assem="jal " ^ (Symbol.name funcName) ^ "\n",
                         src=munchArgs(0, argExps),
                         dst=calldefs,
-                        jump=SOME([funcName])})
+                        jump=SOME([funcName])});
+            emit(A.MOVE{assem="move `d0, `s0\n",
+                        src=Frame.RV,
+                        dst=temp}))
 
           (* Stores to registers *)
         | munchStm(T.MOVE(T.TEMP(temp), T.CONST(intVal))) =

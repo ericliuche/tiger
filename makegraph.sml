@@ -14,6 +14,7 @@ struct
       val nodes = map (fn _ => FG.newNode(flowGraph)) asm
       val nodeInstrs = ListPair.zip(nodes, asm)
 
+      (* Put entries for all of the nodes in the CFG into the correct tables *)
       fun buildNodes((node, instr), (def, use, ismove, labelMap)) =
           case instr of
             Assem.OPER{assem, dst, src, jump} =>
@@ -37,6 +38,7 @@ struct
       val init = (FG.Table.empty, FG.Table.empty, FG.Table.empty, Symbol.empty)
       val (def, use, ismove, labelMap) = foldl buildNodes init nodeInstrs
 
+      (* Construct the edges in the CFG *)
       fun buildEdges((node, Assem.OPER{assem, dst, src, jump=SOME(labels)}), nextNode) = 
         let 
           fun addEdge(label) = 
