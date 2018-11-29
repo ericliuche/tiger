@@ -58,10 +58,33 @@ struct
             (spillWL, freezeWL, simplifyWL)
 
 
-      val (spillWL, freezeWL, simplifyWL) = makeWorklist(igraphNodes, [], [], []) 
+      (* Calculate the initial values for the worklists *)
+      val (spillWLInit, freezeWLInit, simplifyWLInit) = makeWorklist(igraphNodes, [], [], []) 
+      
+      val spillWL = ref spillWLInit
+      val freezeWL = ref freezeWLInit
+      val simplifyWL = ref simplifyWLInit
+
+      fun processWLs() =
+        if length(!simplifyWL) > 0 then
+          (* Simplify a node *)
+          processWLs()
+        else if length(!freezeWL) > 0 then
+          (* Freeze a node *)
+          processWLs()
+        else if length(!spillWL) > 0 then
+          (* Select a spill candidate *)
+          processWLs()
+
+        (* TODO: add check for moves worklist *)
+
+        else
+          (* Nothing was done this iteration, so don't recurse *)
+          ()
 
     in
       print("Constructed worklists");
+      processWLs();
       (instrs, Temp.Table.empty)
     end
 
