@@ -36,6 +36,8 @@ sig
   val calleesaves: (Temp.temp * register) list
   val callersaves: (Temp.temp * register) list
 
+  val numReg: int
+
   (* Retrieve the temps or registers respectively from a list of (register * temp) *)
   val tempList: (Temp.temp * register) list -> Temp.temp list
   val registerList: (Temp.temp * register) list -> register list
@@ -122,6 +124,8 @@ struct
        initRegList callersaves,
        !tempMap)
     end
+
+  val numReg = (length callersaves) + (length calleesaves)
 
   fun tempList(tempRegs) = map (fn (temp, reg) => temp) tempRegs
 

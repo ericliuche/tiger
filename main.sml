@@ -16,11 +16,14 @@ structure Main = struct
       val instrs' = F.procEntryExit2(frame, instrs)
       val {prolog, body=instrs'', epilog} = F.procEntryExit3(frame, instrs')
 
+
+      val (instrs'', allocation) = RegAlloc.alloc(instrs', frame)
+(*
       val (cfg, nodes) = MakeGraph.instrs2graph instrs''
 
       val (ig, liveout) = Liveness.interferenceGraph cfg
       val _ = Liveness.show(TextIO.stdOut, ig) 
-
+*)
       val format0 = Assem.format(F.tempName)
     in
       print("\n\n");
