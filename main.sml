@@ -24,7 +24,12 @@ structure Main = struct
       val (ig, liveout) = Liveness.interferenceGraph cfg
       val _ = Liveness.show(TextIO.stdOut, ig) 
 *)
-      val format0 = Assem.format(F.tempName)
+      fun registerForTemp(temp) =
+        case Temp.Table.look(allocation, temp) of
+          SOME(register) => register
+        | NONE => F.tempName(temp)
+
+      val format0 = Assem.format(registerForTemp)
     in
       print("\n\n");
       TextIO.output(out, prolog);

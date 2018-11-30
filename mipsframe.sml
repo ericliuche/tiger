@@ -125,7 +125,7 @@ struct
        !tempMap)
     end
 
-  val numReg = (length callersaves) + (length calleesaves)
+  val numReg = (length callersaves) + (length calleesaves) + (length specialregs) + (length argregs)
 
   fun tempList(tempRegs) = map (fn (temp, reg) => temp) tempRegs
 
