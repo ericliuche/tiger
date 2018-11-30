@@ -78,7 +78,7 @@ struct
 
           (* Stores to memory *)
         | munchStm(T.MOVE(T.MEM(T.BINOP(T.PLUS, exp1, T.CONST(intVal))), exp2)) =
-            emit(A.OPER{assem="sw `s1, " ^ (Int.toString intVal) ^ "(`s0)\n",
+            emit(A.OPER{assem="sw `s1, " ^ (intToStr intVal) ^ "(`s0)\n",
                         src=[munchExp exp1, munchExp exp2],
                         dst=[],
                         jump=NONE})
