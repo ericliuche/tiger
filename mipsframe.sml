@@ -118,7 +118,7 @@ struct
               (temp, reg) :: initRegList(rest)
             end
     in
-      ([(FP, "$fp"), (RV, "$rv"), (RA, "$ra"), (SP, "$sp"), (ZERO, "$0")],
+      ([(FP, "$fp"), (RV, "$v0"), (RA, "$ra"), (SP, "$sp"), (ZERO, "$0")],
        initRegList argregs,
        initRegList calleesaves,
        initRegList callersaves,

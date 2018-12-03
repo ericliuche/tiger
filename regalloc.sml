@@ -23,15 +23,19 @@ end
 structure RegAlloc: REG_ALLOC =
 struct
   structure Frame = MipsFrame
+  structure CodeGen = MipsCodegen
 
   type allocation = Frame.register Temp.Table.table
 
   fun alloc(instrs, frame): Assem.instr list * allocation =
     let
 
+      (* Does the given list contain the given item using the given comparator? *)
+      fun contains(head :: rest, item, eqOp) = eqOp(head, item) orelse contains(rest, item, eqOp)
+        | contains(nil, item, eqOp) = false
+
       (* Does the given list of nodes contain the given node? *)
-      fun containsNode(head :: rest, node) = Graph.eq(head, node) orelse containsNode(rest, node)
-        | containsNode(nil, node) = false
+      fun containsNode(nodeList, node) = contains(nodeList, node, Graph.eq)
 
       (* Remove all instances of the given item from the given list using the given comparator *)
       fun removeFromList(head :: rest, item, eqOp) =
@@ -51,6 +55,7 @@ struct
       val igraphNodes = Graph.nodes((fn Liveness.IGRAPH{graph=graph, ...} => graph) igraph)
       val igraphMoves = foldr (fn (node, moveList) => node :: moveList) nil igraphNodes
       val igraphGtemp = (fn Liveness.IGRAPH{gtemp=gtemp, ...} => gtemp) igraph
+      val igraphTnode = (fn Liveness.IGRAPH{tnode=tnode, ...} => tnode) igraph
 
       (* Print the interference graph *)
       val _ = Liveness.show(TextIO.stdOut, igraph)
@@ -126,6 +131,9 @@ struct
 
       (* Nodes that have been coalesced *)
       val coalescedNodes = ref []
+
+      (* Nodes that have been spilled *)
+      val spilledNodes = ref []
 
       (* Track nodes that have been colored and the colors assigned to them *)
       val coloredNodes = ref []
@@ -211,9 +219,111 @@ struct
 
       fun coalesce() = (print("Coalescing\n"); movesWL := [])
 
+      fun freezeMoves(node) =
+        (* TODO: implement freezing moves for coalescing *)
+        ()
+
       fun freeze() = (print("Freezing\n"); freezeWL := [])
 
-      fun selectSpill() = print("Selecting spill candidate\n")
+      (* Remove a spill candidate from the worklist and return it *)
+      fun pickSpillCandidate() =
+        let
+          fun cost(node) = 1 (* TODO: implement heuristic *)
+
+          val costs = map cost (!simplifyWL)
+          val nodesAndCosts = ListPair.zip(!simplifyWL, costs)
+
+          (* Find the node with minimum cost in the spill worklist *)
+          fun findMin((node, cost), (minNode, minCost)) =
+            if minCost < cost andalso minCost >= 0 then
+              (minNode, minCost)
+            else
+              (node, cost)
+
+          val baseCase = (hd(!spillWL), ~1)
+          val (minNode, minCost) = foldr findMin baseCase nodesAndCosts
+
+        in
+          spillWL := removeNodeFromList(!spillWL, minNode);
+          minNode
+        end
+
+      (* Select a spill candidate *)
+      fun selectSpill() =
+        let
+          val node = pickSpillCandidate()
+        in
+          simplifyWL := node :: !simplifyWL;
+          freezeMoves(node)
+        end
+
+      fun rewriteProgram() =
+        let
+
+          val spilledTemps = map igraphGtemp (!spilledNodes)
+
+          val accesses = map
+            (fn temp => (Frame.allocLocal(frame)(true)))
+            spilledTemps
+
+          fun processInstrs(instr :: rest, temp, access) =
+                (case instr of
+                  Assem.OPER{dst=dst, src=src, assem=assem, jump=jump} =>
+                    (if contains(dst, temp, op=) then
+                      let
+                        val defTemp = Temp.newtemp()
+                        val newDst = map (fn t => if t = temp then defTemp else t) dst
+                      in
+                        (Assem.OPER{dst=newDst, src=src, assem=assem, jump=jump} ::
+                        CodeGen.codegen(frame)(Tree.MOVE(Frame.exp(access)(Tree.TEMP(Frame.FP)), Tree.TEMP(defTemp)))) @
+                        processInstrs(rest, temp, access)
+                      end
+
+                    else if contains(src, temp, op=) then
+                      let
+                        val useTemp = Temp.newtemp()
+                        val newSrc = map (fn t => if t = temp then useTemp else t) src
+                      in
+                        CodeGen.codegen(frame)(Tree.MOVE(Tree.TEMP(useTemp), Frame.exp(access)(Tree.TEMP(Frame.FP)))) @
+                        (Assem.OPER{dst=dst, src=newSrc, assem=assem, jump=jump} ::
+                        processInstrs(rest, temp, access))
+                      end
+
+                    else
+                      instr :: processInstrs(rest, temp, access))
+
+                | Assem.MOVE{assem=assem, dst=dst, src=src} =>
+                    (if dst = temp then
+                      let
+                        val defTemp = Temp.newtemp()
+                      in
+                        (Assem.MOVE{dst=defTemp, src=src, assem=assem} ::
+                        CodeGen.codegen(frame)(Tree.MOVE(Frame.exp(access)(Tree.TEMP(Frame.FP)), Tree.TEMP(defTemp)))) @
+                        processInstrs(rest, temp, access)
+                      end
+
+                    else if src = temp then
+                      let
+                        val useTemp = Temp.newtemp()
+                      in
+                        CodeGen.codegen(frame)(Tree.MOVE(Tree.TEMP(useTemp), Frame.exp(access)(Tree.TEMP(Frame.FP)))) @
+                        (Assem.MOVE{dst=dst, src=useTemp, assem=assem} ::
+                        processInstrs(rest, temp, access))
+                      end
+
+                    else
+                      instr :: processInstrs(rest, temp, access))
+
+                | _ => (print("PROCESSING OTHER\n"); instr :: processInstrs(rest, temp, access)))
+
+            | processInstrs(nil, temp, access) = nil
+
+        in
+          foldr
+            (fn ((temp, access), instrList) => processInstrs(instrList, temp, access))
+            instrs
+            (ListPair.zip(spilledTemps, accesses))
+        end
 
       (* Attempt to assign colors with the current selected stack *)
       fun assignColors() =
@@ -221,7 +331,7 @@ struct
           node :: rest =>
             let
               val okColors = ref (Frame.registerList(
-                (Frame.callersaves) @ (Frame.calleesaves) @ (Frame.argregs) @ (Frame.specialregs)))
+                (Frame.callersaves) @ (Frame.calleesaves) @ (Frame.argregs)))
 
               val alreadyColored = Option.isSome(Temp.Table.look(!colors, (igraphGtemp node)))
 
@@ -240,8 +350,9 @@ struct
               selectStack := rest;
               
               (if length(!okColors) = 0 then
-                (*TODO: spill nodes*)
-                ErrorMsg.impossible "Unable to allocate with spilling nodes"
+                (print("Spilling node " ^ (nodeAndTempName node) ^ "\n");
+                 spilledNodes := node :: !spilledNodes)
+                (* ErrorMsg.impossible "Unable to allocate with spilling nodes" *)
               else if not alreadyColored then
                 setColor(node, hd(!okColors))
               else
@@ -274,10 +385,36 @@ struct
           (* Nothing was done this iteration, so don't recurse *)
           ()
 
+      (* Filter unnecessary move instructions from the final assembly
+
+         TODO: determine if this is actually needed after implementing coalescing
+      *)
+      fun filterUnnecessaryMoves(head :: rest) =
+            (case head of
+              Assem.MOVE{src=src, dst=dst, ...} =>
+                if (color(igraphTnode src)) = (color(igraphTnode dst)) then
+                  filterUnnecessaryMoves(rest)
+                else
+                  head :: filterUnnecessaryMoves(rest)
+            | _ => head :: filterUnnecessaryMoves(rest))
+
+        | filterUnnecessaryMoves(nil) = nil
+
+
     in
       processWLs();
       assignColors();
-      (instrs, !colors)
+
+      if length(!spilledNodes) > 0 then
+        let
+          val newInstrs = rewriteProgram()
+        in
+          alloc(newInstrs, frame)
+        end
+
+      else
+        (filterUnnecessaryMoves instrs, !colors)
+
     end
 
 end
