@@ -228,7 +228,28 @@ struct
       (* Remove a spill candidate from the worklist and return it *)
       fun pickSpillCandidate() =
         let
-          fun cost(node) = 1 (* TODO: implement heuristic *)
+
+          (* Calculate the cost of spilling a single node *)
+          fun cost(node) =
+            let
+              val temp = igraphGtemp node
+
+              (* Count the number of times a node is defined or used to determine its spill cost *)
+              fun calcCost(head :: rest) =
+                    (case head of
+                      Assem.OPER{dst=dst, src=src, ...} =>
+                        (if contains(dst, temp, op=) then 1 else 0) +
+                        (if contains(src, temp, op=) then 1 else 0) +
+                        calcCost(rest)
+                    | Assem.MOVE{dst=dst, src=src, ...} =>
+                        (if dst = temp then 1 else 0) +
+                        (if src = temp then 1 else 0) +
+                        calcCost(rest))
+
+                | calcCost(nil) = 0
+            in
+              calcCost(instrs)
+            end
 
           val costs = map cost (!simplifyWL)
           val nodesAndCosts = ListPair.zip(!simplifyWL, costs)
@@ -314,7 +335,7 @@ struct
                     else
                       instr :: processInstrs(rest, temp, access))
 
-                | _ => (print("PROCESSING OTHER\n"); instr :: processInstrs(rest, temp, access)))
+                | _ => instr :: processInstrs(rest, temp, access))
 
             | processInstrs(nil, temp, access) = nil
 
