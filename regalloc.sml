@@ -25,10 +25,21 @@ struct
   structure Frame = MipsFrame
   structure CodeGen = MipsCodegen
 
+  (* Flag controlling whether debug messages are printed to standard out *)
+  val DEBUG = false
+  fun log(s) = if DEBUG then print(s) else ()
+
   type allocation = Frame.register Temp.Table.table
 
   fun alloc(instrs, frame): Assem.instr list * allocation =
     let
+
+      (*******************************************
+
+        Utilities for operating on sets/lists
+
+      ********************************************)
+
 
       (* Filter the given list with the given predicate *)
       fun filter(head :: rest, pred) = if pred(head) then head :: filter(rest, pred) else filter(rest, pred)
@@ -76,6 +87,15 @@ struct
       (* Remove all instances of the given node from the given list of nodes *)
       fun removeNodeFromList(nodeList, node) = removeFromList(nodeList, node, Graph.eq)
 
+
+
+      (*******************************************
+
+        Initialization of the interference graph
+
+      ********************************************)
+
+
       (* Construct a control flow graph and an interference graph *)
       val (flowGraph, flowGraphNodes) = MakeGraph.instrs2graph instrs
       val (igraph, liveOut) = Liveness.interferenceGraph flowGraph
@@ -85,7 +105,7 @@ struct
       val igraphGtemp = (fn Liveness.IGRAPH{gtemp=gtemp, ...} => gtemp) igraph
       val igraphTnode = (fn Liveness.IGRAPH{tnode=tnode, ...} => tnode) igraph
 
-
+      (* Create the initialization values for the move table and list from the interference graph *)
       val (igraphMoveTableInit, igraphMoveListInit) =
         foldr
           (fn (move as (n1, n2), (table, moveList)) =>
@@ -107,11 +127,13 @@ struct
           ((Graph.Table.empty, nil))
           (igraphMoves)
 
+      (* Interference graph moves as a node -> node list and a node list*)
       val igraphMoveList = ref igraphMoveListInit
       val igraphMoveTable = ref igraphMoveTableInit
 
+
       (* Print the interference graph *)
-      val _ = Liveness.show(TextIO.stdOut, igraph)
+      val _ = if DEBUG then Liveness.show(TextIO.stdOut, igraph) else ()
 
 
       (* Track which temps have been assigned colors already and which nodes they correspond to *)
@@ -207,8 +229,6 @@ struct
       (* Enable the moves for all nodes in the given list of nodes *)
       fun enableMoves(head :: rest) =
             let
-              val _ = print("Adding moves for " ^ (nodeAndTempName head) ^ "\n")
-              val _ = print("Length of movesWL: " ^ (Int.toString(length(!movesWL))) ^ "\n")
               val moves = nodeMoves(head)
             in
               app
@@ -260,20 +280,17 @@ struct
 
       (* Set the given color for the given node *)
       fun setColor(node, color) =
-        (print("Setting color " ^ color ^ " for " ^ (nodeAndTempName node) ^ ")\n");
+        (log("Setting color " ^ color ^ " for " ^ (nodeAndTempName node) ^ ")\n");
+
          colors := Temp.Table.enter(!colors, (igraphGtemp node), color);
          coloredNodes := node :: !coloredNodes)
-        (* TODO: also assign colors for nodes coalesced with this one *)
         
-      
-
 
       (* Decrement the degree of a single node *)
       fun decrementDegree(node) =
         let
           val d = degree(node)
         in
-          (*print("Decrementing degree of " ^ (nodeAndTempName node) ^ " to " ^ (Int.toString (d - 1)) ^"\n");*)
           degrees := Graph.Table.enter(!degrees, node, d - 1);
           if d = Frame.numReg then
             (enableMoves(node :: adjacent(node));
@@ -293,13 +310,23 @@ struct
       fun simplify() =
         case !simplifyWL of
           node :: rest =>
-            (print("Adding " ^ (nodeAndTempName node) ^ " to select stack\n");
+            (log("Adding " ^ (nodeAndTempName node) ^ " to select stack\n");
+
              simplifyWL := rest;
              selectStack := node :: !selectStack;
 
              app decrementDegree (adjacent node))
 
         | nil => ErrorMsg.impossible "Cannot simplify graph"
+
+
+
+      (*******************************************
+
+        Register coalescing logic
+
+      ********************************************)
+
 
       (* Get the representative node if this node has been coalesced *)
       fun getAlias(node) =
@@ -310,15 +337,18 @@ struct
         else
           node
 
-
+      (* Coalesce two move-related temps into a single interference graph node *)
       fun coalesce() =
         case !movesWL of
           (move as (n1, n2)) :: rest =>
             let
 
-              val _ = print("Coalescing " ^ (nodeAndTempName n1) ^ " and " ^ (nodeAndTempName n2) ^ "\n")
+              val _ = log("Coalescing " ^ (nodeAndTempName n1) ^ " and " ^ (nodeAndTempName n2) ^ "\n")
+              
+              (* Is the given node precolored? *)
               fun isPrecolored(n) = Option.isSome(Temp.Table.look(precoloredMap, igraphGtemp n))
 
+              (* Are the two given nodes adjacent to each other? *)
               fun isAdj(a, b) = containsNode(adjacent(a), b)
 
               val x = getAlias(n1)
@@ -330,6 +360,7 @@ struct
                 else
                   (x, y)
 
+              (* If the given frozen move can be simplified, move it to the simplify worklist *)
               fun addWorkList(n) =
                 if not(isPrecolored(n)) andalso
                    not(moveRelated(n)) andalso
@@ -341,14 +372,15 @@ struct
                 else
                   ()
 
+              (* Add an interference edge between the two given nodes *)
               fun addEdge(u, v) =
                 let
                   fun incrDegree(n) =
                     degrees := Graph.Table.enter(!degrees, n, degree(n) + 1)
                 in
                   if not(containsMove(!igraphMoveList, (u, v))) andalso not(Graph.eq(u, v)) then
-                    ((*Graph.mk_edge{from=u, to=v};*)
-                      print("Adding edge from " ^ (nodeAndTempName u) ^ " to " ^ (nodeAndTempName v));
+                    (log("Adding edge from " ^ (nodeAndTempName u) ^ " to " ^ (nodeAndTempName v));
+                     
                      adjList := Graph.Table.enter(!adjList, u, v :: adjacent(u));
                      incrDegree(u);
                      incrDegree(v))
@@ -356,11 +388,13 @@ struct
                     ()
                 end
 
+              (* Combine the two given nodes into a single logical node for the interference graph *)
               fun combine(u, v) =
                 let
                   val uMoves = Option.getOpt(Graph.Table.look(!igraphMoveTable, u), nil)
                   val vMoves = Option.getOpt(Graph.Table.look(!igraphMoveTable, v), nil)
 
+                  (* Marks the given node as interfering with u from above *)
                   fun handleAdjacent(node) =
                     (addEdge(node, u); decrementDegree(node))
 
@@ -373,14 +407,12 @@ struct
                   coalescedNodes := v :: !coalescedNodes;
                   alias := Graph.Table.enter(!alias, v, u);
 
-                  (* TODO: What DS does this refer to?:
-                  nodeMoves[u] <- nodeMoves[u] U nodeMoves[v]*)
+
+                  (* nodeMoves[u] <- nodeMoves[u] U nodeMoves[v]*)
                   movesWL := (u, v) :: !movesWL;
                   igraphMoveList := (u, v) :: !igraphMoveList;
                   igraphMoveTable := Graph.Table.enter(!igraphMoveTable, u, (u, v) :: uMoves);
                   igraphMoveTable := Graph.Table.enter(!igraphMoveTable, v, (u, v) :: vMoves);
-
-
 
                   app handleAdjacent (adjacent(v));
 
@@ -388,18 +420,16 @@ struct
                     (freezeWL := removeNodeFromList(!freezeWL, u);
                      spillWL := u :: !spillWL)
                   else
-                    ()
-
-                  )
+                    ())
                 end
 
-
-
+              (* Return true if the heuristic for coalescing a precolored register is satisfied *)
               fun ok(t) =
                 (degree(t) < Frame.numReg) orelse
                 (isPrecolored(t)) orelse
                 (isAdj(t, u))
 
+              (* Return true if the conservative coalescing heuristic is satisfied *)
               fun conservative(nodes) =
                 let
                   val K = Frame.numReg
@@ -439,8 +469,11 @@ struct
         | _ => ErrorMsg.impossible "Cannot coalesce empty moves worklist"
 
 
+      (* Freeze moves involving the given node to prevent its register from being coalesced *)
       fun freezeMoves(node) =
         let
+
+          (* Mark the given move as frozen *)
           fun freezeMove(move as (x, y)) =
             let
               val yAlias = getAlias(y)
@@ -460,6 +493,7 @@ struct
           app freezeMove (nodeMoves(node))
         end
 
+      (* Process an entry fromthe freeze worklist and *)
       fun freeze() =
         case !freezeWL of
           node :: rest =>
@@ -467,6 +501,15 @@ struct
              simplifyWL := node :: !simplifyWL;
              freezeMoves(node))
         | nil => ErrorMsg.impossible "Unable to freeze node with empty worklist"
+
+
+
+      (*******************************************
+
+        Register spilling logic
+
+      ********************************************)
+
 
       (* Remove a spill candidate from the worklist and return it *)
       fun pickSpillCandidate() =
@@ -521,34 +564,42 @@ struct
           freezeMoves(node)
         end
 
+      (* Rewrite the program be inserting appropriate load and store instructions for spilled temps *)
       fun rewriteProgram() =
         let
 
           val spilledTemps = map igraphGtemp (!spilledNodes)
 
+          (* Allocate frame slots for all of the temps that we spilled *)
           val accesses = map
             (fn temp => (Frame.allocLocal(frame)(true)))
             spilledTemps
 
+          (* Process an instruction list and insert appropriate loads and stores *)
           fun processInstrs(instr :: rest, temp, access) =
                 (case instr of
                   Assem.OPER{dst=dst, src=src, assem=assem, jump=jump} =>
+
+                    (* Insert store instructions after every def *)
                     (if contains(dst, temp, op=) then
                       let
                         val defTemp = Temp.newtemp()
                         val newDst = map (fn t => if t = temp then defTemp else t) dst
                       in
                         (Assem.OPER{dst=newDst, src=src, assem=assem, jump=jump} ::
-                        CodeGen.codegen(frame)(Tree.MOVE(Frame.exp(access)(Tree.TEMP(Frame.FP)), Tree.TEMP(defTemp)))) @
+                        CodeGen.codegen(frame)(Tree.MOVE(Frame.exp(access)(Tree.TEMP(Frame.FP)),
+                                                         Tree.TEMP(defTemp)))) @
                         processInstrs(rest, temp, access)
                       end
 
+                    (* Insert load instructions before every read *)
                     else if contains(src, temp, op=) then
                       let
                         val useTemp = Temp.newtemp()
                         val newSrc = map (fn t => if t = temp then useTemp else t) src
                       in
-                        CodeGen.codegen(frame)(Tree.MOVE(Tree.TEMP(useTemp), Frame.exp(access)(Tree.TEMP(Frame.FP)))) @
+                        CodeGen.codegen(frame)(Tree.MOVE(Tree.TEMP(useTemp),
+                                                         Frame.exp(access)(Tree.TEMP(Frame.FP)))) @
                         (Assem.OPER{dst=dst, src=newSrc, assem=assem, jump=jump} ::
                         processInstrs(rest, temp, access))
                       end
@@ -557,20 +608,25 @@ struct
                       instr :: processInstrs(rest, temp, access))
 
                 | Assem.MOVE{assem=assem, dst=dst, src=src} =>
+
+                    (* Insert store instructions after a def via a move *)
                     (if dst = temp then
                       let
                         val defTemp = Temp.newtemp()
                       in
                         (Assem.MOVE{dst=defTemp, src=src, assem=assem} ::
-                        CodeGen.codegen(frame)(Tree.MOVE(Frame.exp(access)(Tree.TEMP(Frame.FP)), Tree.TEMP(defTemp)))) @
+                        CodeGen.codegen(frame)(Tree.MOVE(Frame.exp(access)(Tree.TEMP(Frame.FP)),
+                                                         Tree.TEMP(defTemp)))) @
                         processInstrs(rest, temp, access)
                       end
 
+                    (* Insert load instructions before a read via a move *)
                     else if src = temp then
                       let
                         val useTemp = Temp.newtemp()
                       in
-                        CodeGen.codegen(frame)(Tree.MOVE(Tree.TEMP(useTemp), Frame.exp(access)(Tree.TEMP(Frame.FP)))) @
+                        CodeGen.codegen(frame)(Tree.MOVE(Tree.TEMP(useTemp),
+                                                         Frame.exp(access)(Tree.TEMP(Frame.FP)))) @
                         (Assem.MOVE{dst=dst, src=useTemp, assem=assem} ::
                         processInstrs(rest, temp, access))
                       end
@@ -589,6 +645,13 @@ struct
             (ListPair.zip(spilledTemps, accesses))
         end
 
+
+      (*******************************************
+
+        Color assignment logic
+
+      ********************************************)
+
       (* Attempt to assign colors with the current selected stack *)
       fun assignColors() =
         case !selectStack of
@@ -599,36 +662,42 @@ struct
 
               val alreadyColored = Option.isSome(Temp.Table.look(!colors, (igraphGtemp node)))
 
-              val _ = print("Getting OK colors for " ^ (nodeAndTempName node) ^ "\n")
+              val _ = log("Finding OK colors for " ^ (nodeAndTempName node) ^ "\n")
+
+              (*
+                Update the list of okay colors for the current node by removing any colors already
+                assigned to the given node or any node it is coalesced with
+              *)
               fun updateOkColors(node) =
                 let
                   val alias = getAlias(node)
-                  val _ = print("Alias for " ^ (nodeAndTempName node) ^ ": " ^ (nodeAndTempName alias) ^ "\n")
                 in
+                  log("Alias for " ^ (nodeAndTempName node) ^ ": " ^ (nodeAndTempName alias) ^ "\n");
+
                   if containsNode(union(!coloredNodes, precolored, Graph.eq) , alias) then
-                    (print("Removing color from OK list: " ^ (color(alias)) ^ "\n");
+                    (log("Removing color from OK list: " ^ (color(alias)) ^ "\n");
+
                     okColors := removeFromList(!okColors, color(alias), op=))
+
                   else
                     ()
                 end
 
-              val _ = print("Neighbors: " ^ (Int.toString(length(adjacent node))) ^ "\n")
+              val _ = log("Neighbors: " ^ (Int.toString(length(adjacent node))) ^ "\n")
               val _ = app updateOkColors (adjacent node)
             in
               selectStack := rest;
               
               (if length(!okColors) = 0 then
-                (print("Spilling node " ^ (nodeAndTempName node) ^ "\n");
+                (log("Spilling node " ^ (nodeAndTempName node) ^ "\n");
+
                  spilledNodes := node :: !spilledNodes)
 
               else if not alreadyColored then
-                (print("Okay colors for " ^ (nodeAndTempName node) ^ ": ");
-                 app (fn c => print(c ^ ", ")) (!okColors);
-                 print("\n");
-                setColor(node, hd(!okColors));
-                print("\n\n"))
+                setColor(node, hd(!okColors))
+
               else
-                print("Already colored " ^ (nodeAndTempName node) ^ "\n\n"));
+                log("Already colored " ^ (nodeAndTempName node) ^ "\n\n"));
 
               assignColors()
             end
@@ -636,6 +705,7 @@ struct
         | nil =>
           (* Assign colors to all coalesced nodes *)
           app (fn node => setColor(node, color(getAlias(node)))) (!coalescedNodes)
+
 
       (* Loop until all worklists are empty *)
       fun processWLs() =
@@ -659,10 +729,8 @@ struct
           (* Nothing was done this iteration, so don't recurse *)
           ()
 
-      (* Filter unnecessary move instructions from the final assembly
 
-         TODO: determine if this is actually needed after implementing coalescing
-      *)
+      (* Filter unnecessary move instructions from the final assembly *)
       fun filterUnnecessaryMoves(head :: rest) =
             (case head of
               Assem.MOVE{src=src, dst=dst, ...} =>
@@ -688,10 +756,10 @@ struct
         end
 
       else
-        (
-          print("Coalesced nodes:\n");
-          app (fn n => print((nodeAndTempName n) ^ ": " ^ (nodeAndTempName (getAlias(n))) ^ "\n")) (!coalescedNodes);
-          (filterUnnecessaryMoves instrs, !colors))
+        (log("Coalesced nodes:\n");
+         app (fn n => log((nodeAndTempName n) ^ ": " ^ (nodeAndTempName (getAlias(n))) ^ "\n")) (!coalescedNodes);
+        
+        (filterUnnecessaryMoves instrs, !colors))
 
     end
 
