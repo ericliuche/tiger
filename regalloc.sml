@@ -30,12 +30,39 @@ struct
   fun alloc(instrs, frame): Assem.instr list * allocation =
     let
 
+      (* Filter the given list with the given predicate *)
+      fun filter(head :: rest, pred) = if pred(head) then head :: filter(rest, pred) else filter(rest, pred)
+        | filter(nil, pred) = nil
+
+      (* Are the two move tuples equal disregarding order? *)
+      fun moveEq((n1, n2), (n3, n4)) =
+          (Graph.eq(n1, n3) andalso Graph.eq(n2, n4)) orelse
+          (Graph.eq(n1, n4) andalso Graph.eq(n2, n3))
+
       (* Does the given list contain the given item using the given comparator? *)
       fun contains(head :: rest, item, eqOp) = eqOp(head, item) orelse contains(rest, item, eqOp)
         | contains(nil, item, eqOp) = false
 
       (* Does the given list of nodes contain the given node? *)
       fun containsNode(nodeList, node) = contains(nodeList, node, Graph.eq)
+
+      (* Does the given list of moves contain the given move? *)
+      fun containsMove(moveList, move) = contains(moveList, move, moveEq)
+
+      (* Return the intersection of the two lists using the given comparator *)
+      fun intersect(head1 :: rest1, list2, eqOp) =
+            if contains(list2, head1, eqOp) then
+              head1 :: intersect(rest1, list2, eqOp)
+            else
+              intersect(rest1, list2, eqOp)
+
+        | intersect(nil, list2, eqOp) = nil
+
+      (* Return the union of the two lists (without duplicates) *)
+      fun union(head :: rest, other, eqOp) =
+            if contains(other, head, eqOp) then union(rest, other, eqOp) else head :: union(rest, other, eqOp)
+
+        | union(nil, other, eqOp) = other
 
       (* Remove all instances of the given item from the given list using the given comparator *)
       fun removeFromList(head :: rest, item, eqOp) =
@@ -53,9 +80,35 @@ struct
       val (flowGraph, flowGraphNodes) = MakeGraph.instrs2graph instrs
       val (igraph, liveOut) = Liveness.interferenceGraph flowGraph
       val igraphNodes = Graph.nodes((fn Liveness.IGRAPH{graph=graph, ...} => graph) igraph)
-      val igraphMoves = foldr (fn (node, moveList) => node :: moveList) nil igraphNodes
+      val igraphMoves = (fn Liveness.IGRAPH{moves=moves, ...} => moves) igraph
+      val igraphMoveNodes = foldr (fn ((n1, n2), moveList) => n1 :: n2 :: moveList) nil igraphMoves
       val igraphGtemp = (fn Liveness.IGRAPH{gtemp=gtemp, ...} => gtemp) igraph
       val igraphTnode = (fn Liveness.IGRAPH{tnode=tnode, ...} => tnode) igraph
+
+
+      val (igraphMoveTableInit, igraphMoveListInit) =
+        foldr
+          (fn (move as (n1, n2), (table, moveList)) =>
+            let
+              val n1List = case (Graph.Table.look(table, n1)) of
+                             SOME(moveList) => moveList
+                           | NONE => nil
+
+              val n2List = case (Graph.Table.look(table, n2)) of
+                             SOME(moveList) => moveList
+                           | NONE => nil
+            in
+              (Graph.Table.enter(
+                Graph.Table.enter(table, n1, move :: n1List),
+                n2, move :: n2List),
+
+              move :: moveList)
+            end)
+          ((Graph.Table.empty, nil))
+          (igraphMoves)
+
+      val igraphMoveList = ref igraphMoveListInit
+      val igraphMoveTable = ref igraphMoveTableInit
 
       (* Print the interference graph *)
       val _ = Liveness.show(TextIO.stdOut, igraph)
@@ -84,53 +137,13 @@ struct
         (Graph.Table.empty)
         (igraphNodes))
 
-      (* Get the degree of the given node *)
-      fun degree(node) =
-        case Graph.Table.look(!degrees, node) of
-          SOME(degree) => degree
-        | NONE => ErrorMsg.impossible "Missing degree for node"
-
-      (* Is the given node move related to any other node? *)
-      fun moveRelated(node) =
-        let
-          fun movesContains(node, (n1, n2) :: rest) =
-                Graph.eq(node, n1) orelse Graph.eq(node, n2) orelse movesContains(node, rest)
-            | movesContains(node, nil) = false
-        in
-          movesContains(node, (fn Liveness.IGRAPH{moves=moves, ...} => moves) igraph)
-        end
-
-      (* Return the name of the node and the associated temp as a string *)
-      fun nodeAndTempName(node) =
-        (Graph.nodename node) ^ " (" ^ (Frame.tempName (igraphGtemp node)) ^ ")"
-
-      (* Initialize the spill, freeze, and simplify worklists *)
-      fun makeWorklist(node :: rest, spillWL, freezeWL, simplifyWL) =
-            if degree(node) >= Frame.numReg then
-              makeWorklist(rest, node :: spillWL, freezeWL, simplifyWL)
-            (*else if moveRelated(node) then
-              makeWorklist(rest, spillWL, node :: freezeWL, simplifyWL)*)
-            else
-              makeWorklist(rest, spillWL, freezeWL, node :: simplifyWL)
-
-        | makeWorklist(nil, spillWL, freezeWL, simplifyWL) =
-            (spillWL, freezeWL, simplifyWL)
-
-
-      (* Calculate the initial values for the worklists *)
-      val (spillWLInit, freezeWLInit, simplifyWLInit) = makeWorklist(igraphNodes, [], [], [])
-      
-      (* Worklists to track nodes to take action upon *)
-      val spillWL = ref spillWLInit
-      val freezeWL = ref freezeWLInit
-      val simplifyWL = ref simplifyWLInit
-      val movesWL = ref igraphMoves
 
       (* Stack of nodes to attempt to color *)
       val selectStack = ref []
 
       (* Nodes that have been coalesced *)
       val coalescedNodes = ref []
+      val alias = ref (Graph.Table.empty)
 
       (* Nodes that have been spilled *)
       val spilledNodes = ref []
@@ -139,23 +152,7 @@ struct
       val coloredNodes = ref []
       val colors = ref precoloredMap
 
-      (* Get the color associated with the given node *)
-      fun color(node) =
-        let
-          val temp = igraphGtemp node
-        in
-          case Temp.Table.look(!colors, temp) of
-            SOME(register) => register
-          | NONE => ErrorMsg.impossible ("Missing color for node " ^ (nodeAndTempName node))
-        end
 
-      (* Set the given color for the given node *)
-      fun setColor(node, color) =
-        (print("Setting color " ^ color ^ " for " ^ (nodeAndTempName node) ^ ")\n");
-         colors := Temp.Table.enter(!colors, (igraphGtemp node), color);
-         coloredNodes := node :: !coloredNodes)
-        (* TODO: also assign colors for nodes coalesced with this one *)
-        
       (* Get the nodes that are adjecent to the given node that have not been stacked or coalesced *)
       fun adjacent(node) =
         case Graph.Table.look(!adjList, node) of
@@ -174,56 +171,302 @@ struct
             end
         | NONE => ErrorMsg.impossible "Missing adjList entry for node"
 
+      (* Get the degree of the given node *)
+      fun degree(node) =
+        case Graph.Table.look(!degrees, node) of
+          SOME(degree) => degree
+        | NONE => ErrorMsg.impossible "Missing degree for node"
+
+      (* Return the name of the node and the associated temp as a string *)
+      fun nodeAndTempName(node) =
+        (Graph.nodename node) ^ " (" ^ (Frame.tempName (igraphGtemp node)) ^ ")"
+
+
+      (* Move lists - every move should always be in exactly on of these lists *)
+      val coalescedMoves = ref []
+      val constrainedMoves = ref []
+      val frozenMoves = ref []
+      val movesWL = ref igraphMoveListInit
+      val activeMoves = ref []
+
+      (* Get all of the moves that the given node is a part of *)
+      fun nodeMoves(node) =
+        let
+          fun moveContainsNode((n1, n2)) = Graph.eq(n1, node) orelse Graph.eq(n2, node)
+
+          val activeMovesForNode = filter(!activeMoves, moveContainsNode)
+          val worklistMovesForNode = filter(!movesWL, moveContainsNode)
+        in
+          union(activeMovesForNode, worklistMovesForNode, moveEq)
+        end
+
+
+      (* Is the given node move related to any other node? *)
+      fun moveRelated(node) = length(nodeMoves(node)) > 0
+
+      (* Enable the moves for all nodes in the given list of nodes *)
+      fun enableMoves(head :: rest) =
+            let
+              val _ = print("Adding moves for " ^ (nodeAndTempName head) ^ "\n")
+              val _ = print("Length of movesWL: " ^ (Int.toString(length(!movesWL))) ^ "\n")
+              val moves = nodeMoves(head)
+            in
+              app
+                (fn (move) =>
+                  if containsMove(moves, move) andalso not (containsMove(!movesWL, move)) then
+                    (activeMoves := removeFromList(!activeMoves, move, moveEq);
+                     movesWL := move :: !movesWL)
+                  else
+                    ())
+                (moves);
+
+              enableMoves(rest)
+            end
+
+        | enableMoves(nil) = ()
+
+
+      (* Initialize the spill, freeze, and simplify worklists *)
+      fun makeWorklist(node :: rest, spillWL, freezeWL, simplifyWL) =
+            if degree(node) >= Frame.numReg then
+              makeWorklist(rest, node :: spillWL, freezeWL, simplifyWL)
+            else if moveRelated(node) then
+              makeWorklist(rest, spillWL, node :: freezeWL, simplifyWL)
+            else
+              makeWorklist(rest, spillWL, freezeWL, node :: simplifyWL)
+
+        | makeWorklist(nil, spillWL, freezeWL, simplifyWL) =
+            (spillWL, freezeWL, simplifyWL)
+
+
+      (* Calculate the initial values for the worklists *)
+      val (spillWLInit, freezeWLInit, simplifyWLInit) = makeWorklist(igraphNodes, [], [], [])
+      
+      (* Worklists to track nodes to take action upon *)
+      val spillWL = ref spillWLInit
+      val freezeWL = ref freezeWLInit
+      val simplifyWL = ref simplifyWLInit
+      
+
+      (* Get the color associated with the given node *)
+      fun color(node) =
+        let
+          val temp = igraphGtemp node
+        in
+          case Temp.Table.look(!colors, temp) of
+            SOME(register) => register
+          | NONE => ErrorMsg.impossible ("Missing color for node " ^ (nodeAndTempName node))
+        end
+
+      (* Set the given color for the given node *)
+      fun setColor(node, color) =
+        (print("Setting color " ^ color ^ " for " ^ (nodeAndTempName node) ^ ")\n");
+         colors := Temp.Table.enter(!colors, (igraphGtemp node), color);
+         coloredNodes := node :: !coloredNodes)
+        (* TODO: also assign colors for nodes coalesced with this one *)
+        
+      
+
+
+      (* Decrement the degree of a single node *)
+      fun decrementDegree(node) =
+        let
+          val d = degree(node)
+        in
+          (*print("Decrementing degree of " ^ (nodeAndTempName node) ^ " to " ^ (Int.toString (d - 1)) ^"\n");*)
+          degrees := Graph.Table.enter(!degrees, node, d - 1);
+          if d = Frame.numReg then
+            (enableMoves(node :: adjacent(node));
+             spillWL := removeNodeFromList(!spillWL, node);
+
+            (* TODO: uncomment when ready to handle move-related coalescing logic *)
+            if moveRelated(node) then
+              freezeWL := node :: !freezeWL
+            else
+              simplifyWL := node :: !simplifyWL)
+          else
+            ()
+        end
+
 
       (* Simplify the graph by removing a node of insignificant degree *)
       fun simplify() =
-        let
+        case !simplifyWL of
+          node :: rest =>
+            (print("Adding " ^ (nodeAndTempName node) ^ " to select stack\n");
+             simplifyWL := rest;
+             selectStack := node :: !selectStack;
 
-          fun enableMoves(node) = () (* TODO: handle moves for coalescing *)
+             app decrementDegree (adjacent node))
 
-          (* Decrement the degree of a single node *)
-          fun decrementDegree(node) =
+        | nil => ErrorMsg.impossible "Cannot simplify graph"
+
+      (* Get the representative node if this node has been coalesced *)
+      fun getAlias(node) =
+        if containsNode(!coalescedNodes, node) then
+          case (Graph.Table.look(!alias, node)) of
+            SOME(nodeAlias) => getAlias(nodeAlias)
+          | NONE => ErrorMsg.impossible "Missing alias for coalesced node"
+        else
+          node
+
+
+      fun coalesce() =
+        case !movesWL of
+          (move as (n1, n2)) :: rest =>
             let
-              val d = degree(node)
-            in
-              print("Decrementing degree of " ^ (nodeAndTempName node) ^ " to " ^ (Int.toString (d - 1)) ^"\n");
-              degrees := Graph.Table.enter(!degrees, node, d - 1);
-              if d = Frame.numReg then
-                (enableMoves(node :: adjacent(node));
-                 spillWL := removeNodeFromList(!spillWL, node);
 
-                 (* TODO: uncomment when ready to handle move-related coalescing logic *)
-                 (*if moveRelated(node) then
-                  freezeWL := node :: !freezeWL
-                 else*)
-                  simplifyWL := node :: !simplifyWL)
+              val _ = print("Coalescing " ^ (nodeAndTempName n1) ^ " and " ^ (nodeAndTempName n2) ^ "\n")
+              fun isPrecolored(n) = Option.isSome(Temp.Table.look(precoloredMap, igraphGtemp n))
+
+              fun isAdj(a, b) = containsNode(adjacent(a), b)
+
+              val x = getAlias(n1)
+              val y = getAlias(n2)
+
+              val (u, v) =
+                if isPrecolored(y) then
+                  (y, x)
+                else
+                  (x, y)
+
+              fun addWorkList(n) =
+                if not(isPrecolored(n)) andalso
+                   not(moveRelated(n)) andalso
+                   degree(n) < (Frame.numReg) then
+                  
+                  (freezeWL := removeNodeFromList(!freezeWL, n);
+                   simplifyWL := n :: !simplifyWL)
+
+                else
+                  ()
+
+              fun addEdge(u, v) =
+                let
+                  fun incrDegree(n) =
+                    degrees := Graph.Table.enter(!degrees, n, degree(n) + 1)
+                in
+                  if not(containsMove(!igraphMoveList, (u, v))) andalso not(Graph.eq(u, v)) then
+                    ((*Graph.mk_edge{from=u, to=v};*)
+                      print("Adding edge from " ^ (nodeAndTempName u) ^ " to " ^ (nodeAndTempName v));
+                     adjList := Graph.Table.enter(!adjList, u, v :: adjacent(u));
+                     incrDegree(u);
+                     incrDegree(v))
+                  else
+                    ()
+                end
+
+              fun combine(u, v) =
+                let
+                  val uMoves = Option.getOpt(Graph.Table.look(!igraphMoveTable, u), nil)
+                  val vMoves = Option.getOpt(Graph.Table.look(!igraphMoveTable, v), nil)
+
+                  fun handleAdjacent(node) =
+                    (addEdge(node, u); decrementDegree(node))
+
+                in
+                  ((if containsNode(!freezeWL, v) then
+                    freezeWL := removeNodeFromList(!freezeWL, v)
+                  else
+                    spillWL := removeNodeFromList(!spillWL, v));
+
+                  coalescedNodes := v :: !coalescedNodes;
+                  alias := Graph.Table.enter(!alias, v, u);
+
+                  (* TODO: What DS does this refer to?:
+                  nodeMoves[u] <- nodeMoves[u] U nodeMoves[v]*)
+                  movesWL := (u, v) :: !movesWL;
+                  igraphMoveList := (u, v) :: !igraphMoveList;
+                  igraphMoveTable := Graph.Table.enter(!igraphMoveTable, u, (u, v) :: uMoves);
+                  igraphMoveTable := Graph.Table.enter(!igraphMoveTable, v, (u, v) :: vMoves);
+
+
+
+                  app handleAdjacent (adjacent(v));
+
+                  if degree(u) >= (Frame.numReg) andalso containsNode(!freezeWL, u) then
+                    (freezeWL := removeNodeFromList(!freezeWL, u);
+                     spillWL := u :: !spillWL)
+                  else
+                    ()
+
+                  )
+                end
+
+
+
+              fun ok(t) =
+                (degree(t) < Frame.numReg) orelse
+                (isPrecolored(t)) orelse
+                (isAdj(t, u))
+
+              fun conservative(nodes) =
+                let
+                  val K = Frame.numReg
+                  val k =
+                    foldr
+                      (fn (node, count) => if degree(node) >= K then count + 1 else count)
+                      (0)
+                      (nodes)
+                in
+                  k < K
+                end
+            in
+              movesWL := removeFromList(!movesWL, move, moveEq);
+
+              (if Graph.eq(u, v) then
+                coalescedMoves := move :: !coalescedMoves
+
+              else if isPrecolored(v) orelse isAdj(u, v) then
+                (constrainedMoves := move :: !constrainedMoves;
+                 addWorkList(u);
+                 addWorkList(v))
+
+              else if isPrecolored(u) andalso
+                      (foldr (fn (t, restIsOk) => restIsOk andalso ok(t)) (true) (adjacent(v))) orelse
+                      (not (isPrecolored(u))) andalso
+                      (conservative(union(adjacent(u), adjacent(v), Graph.eq))) then
+
+                (coalescedMoves := move :: !coalescedMoves;
+                 combine(u, v);
+                 addWorkList(u))
+
+
+              else
+                activeMoves := move :: !activeMoves)
+            end 
+
+        | _ => ErrorMsg.impossible "Cannot coalesce empty moves worklist"
+
+
+      fun freezeMoves(node) =
+        let
+          fun freezeMove(move as (x, y)) =
+            let
+              val yAlias = getAlias(y)
+              val nodeAlias = getAlias(node)
+              val v = if Graph.eq(yAlias, nodeAlias) then (getAlias x) else yAlias
+            in
+              activeMoves := removeFromList(!activeMoves, move, moveEq);
+              frozenMoves := move :: !frozenMoves;
+
+              if (length(nodeMoves(v)) = 0) andalso (degree(v) < (Frame.numReg)) then
+                (freezeWL := removeNodeFromList(!freezeWL, v);
+                 simplifyWL := v :: !simplifyWL)
               else
                 ()
             end
         in
-          case !simplifyWL of
-            node :: rest =>
-              (print("Adding " ^ (nodeAndTempName node) ^ " to select stack\n");
-               simplifyWL := rest;
-               selectStack := node :: !selectStack;
-
-               app decrementDegree (adjacent node))
-
-          | nil => ErrorMsg.impossible "Cannot simplify graph"
+          app freezeMove (nodeMoves(node))
         end
 
-      (* Get the representative node if this node has been coalesced *)
-      fun getAlias(node) =
-        (* TODO: necessary for when nodes get coalesced *)
-        node
-
-      fun coalesce() = (print("Coalescing\n"); movesWL := [])
-
-      fun freezeMoves(node) =
-        (* TODO: implement freezing moves for coalescing *)
-        ()
-
-      fun freeze() = (print("Freezing\n"); freezeWL := [])
+      fun freeze() =
+        case !freezeWL of
+          node :: rest =>
+            (freezeWL := rest;
+             simplifyWL := node :: !simplifyWL;
+             freezeMoves(node))
+        | nil => ErrorMsg.impossible "Unable to freeze node with empty worklist"
 
       (* Remove a spill candidate from the worklist and return it *)
       fun pickSpillCandidate() =
@@ -356,16 +599,20 @@ struct
 
               val alreadyColored = Option.isSome(Temp.Table.look(!colors, (igraphGtemp node)))
 
+              val _ = print("Getting OK colors for " ^ (nodeAndTempName node) ^ "\n")
               fun updateOkColors(node) =
                 let
                   val alias = getAlias(node)
+                  val _ = print("Alias for " ^ (nodeAndTempName node) ^ ": " ^ (nodeAndTempName alias) ^ "\n")
                 in
-                  if containsNode(!coloredNodes @ precolored , alias) then
-                    okColors := removeFromList(!okColors, color(alias), op=)
+                  if containsNode(union(!coloredNodes, precolored, Graph.eq) , alias) then
+                    (print("Removing color from OK list: " ^ (color(alias)) ^ "\n");
+                    okColors := removeFromList(!okColors, color(alias), op=))
                   else
                     ()
                 end
 
+              val _ = print("Neighbors: " ^ (Int.toString(length(adjacent node))) ^ "\n")
               val _ = app updateOkColors (adjacent node)
             in
               selectStack := rest;
@@ -373,16 +620,22 @@ struct
               (if length(!okColors) = 0 then
                 (print("Spilling node " ^ (nodeAndTempName node) ^ "\n");
                  spilledNodes := node :: !spilledNodes)
-                (* ErrorMsg.impossible "Unable to allocate with spilling nodes" *)
+
               else if not alreadyColored then
-                setColor(node, hd(!okColors))
+                (print("Okay colors for " ^ (nodeAndTempName node) ^ ": ");
+                 app (fn c => print(c ^ ", ")) (!okColors);
+                 print("\n");
+                setColor(node, hd(!okColors));
+                print("\n\n"))
               else
-                print("Already colored " ^ (nodeAndTempName node) ^ "\n"));
+                print("Already colored " ^ (nodeAndTempName node) ^ "\n\n"));
 
               assignColors()
             end
 
-        | nil => ()
+        | nil =>
+          (* Assign colors to all coalesced nodes *)
+          app (fn node => setColor(node, color(getAlias(node)))) (!coalescedNodes)
 
       (* Loop until all worklists are empty *)
       fun processWLs() =
@@ -423,6 +676,7 @@ struct
 
 
     in
+
       processWLs();
       assignColors();
 
@@ -434,7 +688,10 @@ struct
         end
 
       else
-        (filterUnnecessaryMoves instrs, !colors)
+        (
+          print("Coalesced nodes:\n");
+          app (fn n => print((nodeAndTempName n) ^ ": " ^ (nodeAndTempName (getAlias(n))) ^ "\n")) (!coalescedNodes);
+          (filterUnnecessaryMoves instrs, !colors))
 
     end
 

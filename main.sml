@@ -16,7 +16,6 @@ structure Main = struct
       val instrs' = F.procEntryExit2(frame, instrs)
       val {prolog, body=instrs'', epilog} = F.procEntryExit3(frame, instrs')
 
-
       val (instrs'', allocation) = RegAlloc.alloc(instrs', frame)
 (*
       val (cfg, nodes) = MakeGraph.instrs2graph instrs''
@@ -24,14 +23,27 @@ structure Main = struct
       val (ig, liveout) = Liveness.interferenceGraph cfg
       val _ = Liveness.show(TextIO.stdOut, ig) 
 *)
+
+      fun preallocRegisterForTemp(temp) =
+        case Temp.Table.look(F.tempMap, temp) of
+          SOME(register) => register
+        | NONE => F.tempName(temp)
+
       fun registerForTemp(temp) =
         case Temp.Table.look(allocation, temp) of
           SOME(register) => register
         | NONE => F.tempName(temp)
 
       val format0 = Assem.format(registerForTemp)
+      val format1 = Assem.format(preallocRegisterForTemp)
     in
+      print("\n\nBefore allocation:\n");
+      TextIO.output(out, prolog);
+      app (fn i => TextIO.output(out,format1 i)) instrs';
+      TextIO.output(out, epilog);
       print("\n\n");
+
+      print("After allocation:\n");
       TextIO.output(out, prolog);
       app (fn i => TextIO.output(out,format0 i)) instrs'';
       TextIO.output(out, epilog);
