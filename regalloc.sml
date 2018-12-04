@@ -296,7 +296,6 @@ struct
             (enableMoves(node :: adjacent(node));
              spillWL := removeNodeFromList(!spillWL, node);
 
-            (* TODO: uncomment when ready to handle move-related coalescing logic *)
             if moveRelated(node) then
               freezeWL := node :: !freezeWL
             else
