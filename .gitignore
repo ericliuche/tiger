@@ -1,7 +1,6 @@
 .DS_STORE
 .cm/
 *.ast
-*.tig.s
 lexer/tiger.lex.sml
 parser/tiger.grm.desc
 parser/tiger.grm.sig

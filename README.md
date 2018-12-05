@@ -1,14 +1,18 @@
-# Live Variable Analysis
+# Register Allocation
 
 ### Nick Flanders and Chenyang Eric Liu
 
-Our MakeGraph module exposes functions to construct a control flow graph from
-a given list of assembly instructions. This graph is then used to construct an
-interference graph from the information contained within the CFG. We first
-calculate the live-in and live-out sets through an algorithm which iteratively
-updates the sets until we find a fixed point. Then, we look through the
-live-out sets of our nodes and insert interference edges as appropriate.
+Our register allocator attempts to coalesce and spill registers whenever
+necessary. To simplify our implementation, we deviated from the specification
+given in Appel's book by only maintaining an adjacency list rather than both
+an adjacency list and an adjacency set. This slightly simplifies our
+implementation at the cost of less efficient look ups.
 
-Since we used many set operations in this stage of the compiler, we added a
-Set type to temps. This enabled us to easily find unions and intersections
-while creating our interference graph.
+Additionally, we included a final step in the register allocator which filters
+out any unnecessary move instructions that are the result of moving between two
+temps which were colored with the same register.
+
+Due to a bug in our implementation of the coalescing and spilling stages of the
+register allocator, certain programs which contain specific interactions
+between coalesced and spilled registers cause the compiler to break as it is
+unable to color a wrongly-coalesced node.
