@@ -133,7 +133,7 @@ struct
 
 
       (* Print the interference graph *)
-      val _ = if DEBUG then Liveness.show(TextIO.stdOut, igraph) else ()
+      val _ = if true then Liveness.show(TextIO.stdOut, igraph) else ()
 
 
       (* Track which temps have been assigned colors already and which nodes they correspond to *)
@@ -158,6 +158,11 @@ struct
         (fn (node, table) => Graph.Table.enter(table, node, (Graph.adj(node))))
         (Graph.Table.empty)
         (igraphNodes))
+
+
+      (* Return the name of the node and the associated temp as a string *)
+      fun nodeAndTempName(node) =
+        (Graph.nodename node) ^ " (" ^ (Frame.tempName (igraphGtemp node)) ^ ")"
 
 
       (* Stack of nodes to attempt to color *)
@@ -199,10 +204,6 @@ struct
           SOME(degree) => degree
         | NONE => ErrorMsg.impossible "Missing degree for node"
 
-      (* Return the name of the node and the associated temp as a string *)
-      fun nodeAndTempName(node) =
-        (Graph.nodename node) ^ " (" ^ (Frame.tempName (igraphGtemp node)) ^ ")"
-
 
       (* Move lists - every move should always be in exactly on of these lists *)
       val coalescedMoves = ref []
@@ -233,7 +234,7 @@ struct
             in
               app
                 (fn (move) =>
-                  if containsMove(moves, move) andalso not (containsMove(!movesWL, move)) then
+                  if containsMove(moves, move) andalso containsMove(!activeMoves, move) then
                     (activeMoves := removeFromList(!activeMoves, move, moveEq);
                      movesWL := move :: !movesWL)
                   else
@@ -377,12 +378,20 @@ struct
                   fun incrDegree(n) =
                     degrees := Graph.Table.enter(!degrees, n, degree(n) + 1)
                 in
-                  if not(containsMove(!igraphMoveList, (u, v))) andalso not(Graph.eq(u, v)) then
+                  if not(isAdj(u, v)) andalso not(Graph.eq(u, v)) then
                     (log("Adding edge from " ^ (nodeAndTempName u) ^ " to " ^ (nodeAndTempName v));
                      
-                     adjList := Graph.Table.enter(!adjList, u, v :: adjacent(u));
-                     incrDegree(u);
-                     incrDegree(v))
+                    (if not(isPrecolored(u)) then
+                      (adjList := Graph.Table.enter(!adjList, u, v :: adjacent(u));
+                       incrDegree(u))
+                    else
+                      ());
+
+                    (if not(isPrecolored(v)) then
+                      (adjList := Graph.Table.enter(!adjList, v, u :: adjacent(v));
+                       incrDegree(v))
+                    else
+                      ()))
                   else
                     ()
                 end
@@ -408,10 +417,22 @@ struct
 
 
                   (* nodeMoves[u] <- nodeMoves[u] U nodeMoves[v]*)
-                  movesWL := (u, v) :: !movesWL;
+                  app
+                    (fn ((n1, n2)) =>
+                      let
+                        val node = if Graph.eq(n1, v) then n2 else n1
+                        val uMoves = Option.getOpt(Graph.Table.look(!igraphMoveTable, u), nil)
+                      in
+                        igraphMoveTable := Graph.Table.enter(!igraphMoveTable, u, (u, node) :: uMoves);
+                        igraphMoveList := (u, node) :: (!igraphMoveList);
+                        movesWL := (u, node) :: (!movesWL)
+                      end)
+                    vMoves;
+
+(*                  movesWL := (u, v) :: !movesWL;
                   igraphMoveList := (u, v) :: !igraphMoveList;
                   igraphMoveTable := Graph.Table.enter(!igraphMoveTable, u, (u, v) :: uMoves);
-                  igraphMoveTable := Graph.Table.enter(!igraphMoveTable, v, (u, v) :: vMoves);
+                  igraphMoveTable := Graph.Table.enter(!igraphMoveTable, v, (u, v) :: vMoves);*)
 
                   app handleAdjacent (adjacent(v));
 
@@ -444,7 +465,8 @@ struct
               movesWL := removeFromList(!movesWL, move, moveEq);
 
               (if Graph.eq(u, v) then
-                coalescedMoves := move :: !coalescedMoves
+                (coalescedMoves := move :: !coalescedMoves;
+                addWorkList(u))
 
               else if isPrecolored(v) orelse isAdj(u, v) then
                 (constrainedMoves := move :: !constrainedMoves;
@@ -657,7 +679,7 @@ struct
           node :: rest =>
             let
               val okColors = ref (Frame.registerList(
-                (Frame.callersaves) @ (Frame.calleesaves) @ (Frame.argregs)))
+                (Frame.callersaves) @ (Frame.calleesaves) @ (Frame.specialregs) @ (Frame.argregs)))
 
               val alreadyColored = Option.isSome(Temp.Table.look(!colors, (igraphGtemp node)))
 
@@ -757,7 +779,8 @@ struct
       else
         (log("Coalesced nodes:\n");
          app (fn n => log((nodeAndTempName n) ^ ": " ^ (nodeAndTempName (getAlias(n))) ^ "\n")) (!coalescedNodes);
-        
+        print("PRECOLORED:\n");
+        app (fn n => print((nodeAndTempName n) ^ "\n")) precolored;
         (filterUnnecessaryMoves instrs, !colors))
 
     end

@@ -11,7 +11,7 @@ structure Main = struct
       (* val _ = print ("emit " ^ Frame.name frame ^ "\n") *)
 	    val stms = Canon.linearize body
       val stms' = Canon.traceSchedule(Canon.basicBlocks stms)
-      val _ = (app (fn tree => Printtree.printtree(TextIO.stdOut, tree)) stms'; print("\n\n"))
+      (*val _ = (app (fn tree => Printtree.printtree(TextIO.stdOut, tree)) stms'; print("\n\n"))*)
 	    val instrs = List.concat(map (MipsCodegen.codegen frame) stms')
       val instrs' = F.procEntryExit2(frame, instrs)
       val {prolog, body=instrs'', epilog} = F.procEntryExit3(frame, instrs')

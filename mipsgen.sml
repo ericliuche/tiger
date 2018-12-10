@@ -235,7 +235,7 @@ struct
 
         | munchExp(T.MEM(exp)) =
             result(fn r =>
-              emit(A.OPER{assem="lw `d0, `s0\n",
+              emit(A.OPER{assem="lw `d0, 0(`s0)\n",
                           src=[munchExp exp],
                           dst=[r],
                           jump=NONE}))

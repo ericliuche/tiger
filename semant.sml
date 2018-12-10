@@ -299,7 +299,7 @@ struct
   *)
   and transFuncDec(venv, tenv, {name, params, result, body, pos}, inLoop, level, exitLabel) =
     let
-      val label = Temp.newlabel()
+      val label = Temp.namedlabel(Symbol.name name)
       val formalEscapes = map (fn ({name, escape, typ, pos}) => !escape) params
       val formalAccesses = Tr.formals(level)
 
@@ -390,13 +390,13 @@ struct
           fun getEscape({name, escape, typ, pos}) = !escape
 
           fun getHeaderInfo({name, params, result=SOME(result, resultPos), body, pos}) =
-                let val label = Temp.newlabel() in
+                let val label = Temp.namedlabel(Symbol.name name) in
                   (name, map getFormal params, Option.getOpt(lookupSymbol(tenv, result, resultPos), Ty.TOP),
                     label, (Tr.newLevel{parent=level, name=label, formals=(map getEscape params)}))
                 end
             
             | getHeaderInfo({name, params, result=NONE, body, pos}) =
-                let val label = Temp.newlabel() in
+                let val label = Temp.namedlabel(Symbol.name name) in
                   (name, map getFormal params, Ty.UNIT,
                     label, (Tr.newLevel{parent=level, name=label, formals=(map getEscape params)}))
                 end
@@ -618,7 +618,7 @@ struct
     (legalAst := true;
      Tr.clearFrags();
     let
-      val mainLabel = Temp.newlabel()
+      val mainLabel = Temp.namedlabel("main")
       val mainLevel = Tr.newLevel{parent=Tr.outermost, name=mainLabel, formals=[]} 
       val {exp=topLevelExp, ty=topLevelType} = (transExp (E.baseVenv, E.baseTenv, false, mainLevel, mainLabel) ast)
     in

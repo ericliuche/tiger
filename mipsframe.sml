@@ -31,6 +31,8 @@ sig
 
   val tempMap: register Temp.Table.table
 
+  val registers: register list
+
   val specialregs: (Temp.temp * register) list
   val argregs: (Temp.temp * register) list
   val calleesaves: (Temp.temp * register) list
@@ -56,7 +58,7 @@ struct
   datatype access = InFrame of int
                   | InReg of Temp.temp
 
-  type frame = {name: Temp.label, formals: access list, numLocals: int ref}
+  type frame = {name: Temp.label, formals: access list, numLocals: int ref, viewShiftMoves: Tree.stm list}
 
   datatype frag = PROC of {body: Tree.stm, frame: frame}
                 | STRING of Temp.label * string
@@ -71,11 +73,11 @@ struct
 
   val wordSize = 4
 
-  fun name({name: Temp.label, formals: access list, numLocals: int ref}) = name
+  fun name({name: Temp.label, formals: access list, numLocals: int ref, viewShiftMoves: Tree.stm list}) = name
 
-  fun formals({name: Temp.label, formals: access list, numLocals: int ref}) = formals
+  fun formals({name: Temp.label, formals: access list, numLocals: int ref, viewShiftMoves: Tree.stm list}) = formals
 
-  fun allocLocal({name: Temp.label, formals: access list, numLocals: int ref}) =
+  fun allocLocal({name: Temp.label, formals: access list, numLocals: int ref, viewShiftMoves: Tree.stm list}) =
     let
       fun alloc(true)  = (numLocals := !numLocals + 1; InFrame(0 - !numLocals * wordSize))
         | alloc(false) = InReg(Temp.newtemp())
@@ -91,7 +93,6 @@ struct
 
   fun externalCall(name, args) =
     T.CALL(T.NAME(Temp.namedlabel(name)), args)
-
 
 
   (* Assign temps to all of the special MIPS registers and initialize the temp map *)
@@ -131,24 +132,74 @@ struct
 
   fun registerList(tempRegs) = map (fn (temp, reg) => reg) tempRegs
 
+  val registers = registerList(calleesaves @ callersaves @ argregs @ specialregs)
+
 
   fun newFrame({name: Temp.label, formals: bool list}) =
     let
       val frameCount = ref 0
+      val viewShiftMoves = ref []
 
-      fun allocFormal(esc) =
-        if not esc then
-          InReg(Temp.newtemp())
-        else
-          (frameCount := !frameCount + 1;
-           InFrame((!frameCount - 1) * wordSize))
+      fun allocFormal((esc, argIdx)) =
+        let
+          val source =
+            if argIdx < (length argregs) then
+              Tree.TEMP((List.nth(tempList argregs, argIdx)))
+            else
+              Tree.MEM(Tree.BINOP(Tree.PLUS, Tree.TEMP(FP), Tree.CONST((argIdx - 4) * wordSize)))
+        in
+          if not esc then
+            let
+              val temp = Temp.newtemp()  
+            in
+              viewShiftMoves := Tree.MOVE(Tree.TEMP(temp), source) :: !viewShiftMoves;
+              InReg(temp)
+            end
+          else
+            let
+              val offset = !frameCount * wordSize
+            in
+              frameCount := !frameCount + 1;
+              viewShiftMoves := Tree.MOVE(Tree.MEM(Tree.BINOP(Tree.PLUS, Tree.TEMP(FP), Tree.CONST(offset))), source) :: !viewShiftMoves;
+              InFrame(offset)
+            end
+        end
+        
+        val indexes = List.tabulate(length formals, (fn idx => idx))
+        val formalsWithIndexes = ListPair.zip(formals, indexes)
 
     in
-      {name=name, formals=map allocFormal formals, numLocals=ref 0}
+      {name=name, formals=map allocFormal formalsWithIndexes, numLocals=ref 0, viewShiftMoves=(rev (!viewShiftMoves))}
     end
 
 
-  fun procEntryExit1(frame, body) = body
+  fun procEntryExit1({name, formals, numLocals, viewShiftMoves}, body) =
+    let
+      fun toSeqTree(stm1 :: stm2 :: nil) = Tree.SEQ(stm1, stm2)
+        | toSeqTree(stm :: nil) = stm
+        | toSeqTree(nil) = ErrorMsg.impossible "Cannot have empty view shift"
+        | toSeqTree(stm :: rest) = Tree.SEQ(stm, toSeqTree(rest))
+
+      val argMoves = toSeqTree viewShiftMoves
+
+      fun getCalleeSavesMoves(temp) =
+        let
+          val newTemp = Temp.newtemp()
+        in
+          (Tree.MOVE(Tree.TEMP(newTemp), Tree.TEMP(temp)),
+           Tree.MOVE(Tree.TEMP(temp), Tree.TEMP(newTemp)))
+        end
+
+      val calleeSavesMoves = map getCalleeSavesMoves (tempList calleesaves)
+      val calleeSavesPrefix = map (fn (m1, m2) => m1) calleeSavesMoves
+      val calleeSavesSuffix = map (fn (m1, m2) => m2) calleeSavesMoves
+    in
+      Tree.SEQ(argMoves,
+        Tree.SEQ(toSeqTree calleeSavesPrefix,
+          Tree.SEQ(body,
+            toSeqTree calleeSavesSuffix)))
+    end
+
 
   fun procEntryExit2(frame, body) =
     body @ [Assem.OPER{assem="",
@@ -156,14 +207,23 @@ struct
                        dst=[],
                        jump=SOME([])}]
 
-  fun procEntryExit3({name, formals, numLocals}, body) =
-    {prolog="PROCEDURE " ^ (Symbol.name name) ^ " \n",
-     body=body,
-     epilog="END " ^ (Symbol.name name) ^ " \n"}
+  fun procEntryExit3({name, formals, numLocals, viewShiftMoves}, body) =
+    let
+      (* TODO: better stack pointer decrement *)
+      val prolog = (Symbol.name name) ^ ":\n" ^
+                   "sub $sp, $sp, " ^ (Int.toString 128) ^ "\n" ^
+                   "addi $fp, $sp, " ^ (Int.toString 64) ^ "\n"
+
+      val epilog = "addi $sp, $sp, " ^ (Int.toString 128) ^ "\n" ^
+                   "addi $fp, $sp, " ^ (Int.toString 64) ^ "\n" ^
+                   "jr $ra\n\n"
+    in
+      {prolog=prolog, body=body, epilog=epilog}
+    end
 
   fun tempName(temp) = Option.getOpt(Temp.Table.look(tempMap, temp), Temp.makestring(temp))
 
-  fun printFrag(frag as PROC{body=stm, frame={name=name, formals=_, numLocals=_}}) =
+  fun printFrag(frag as PROC{body=stm, frame={name=name, formals=_, numLocals=_, viewShiftMoves=_}}) =
         (print "\n\n"; Printtree.printtree(TextIO.stdOut, stm); frag)
     | printFrag(frag as STRING(label, stringVal)) =
         (print "\n\n"; print (Symbol.name (label)); print(" = "); print(stringVal); print "\n"; frag)
