@@ -2,32 +2,18 @@ structure Main = struct
 
   structure Tr = Translate
   structure F = MipsFrame
-  (* structure R = RegAlloc *)
 
   fun getsome (SOME x) = x
 
   fun emitproc out (F.PROC{body, frame}) =
     let
-      (* val _ = print ("emit " ^ Frame.name frame ^ "\n") *)
 	    val stms = Canon.linearize body
       val stms' = Canon.traceSchedule(Canon.basicBlocks stms)
-      (*val _ = (app (fn tree => Printtree.printtree(TextIO.stdOut, tree)) stms'; print("\n\n"))*)
 	    val instrs = List.concat(map (MipsCodegen.codegen frame) stms')
       val instrs' = F.procEntryExit2(frame, instrs)
       val {prolog, body=instrs'', epilog} = F.procEntryExit3(frame, instrs')
 
       val (instrs'', allocation) = RegAlloc.alloc(instrs', frame)
-(*
-      val (cfg, nodes) = MakeGraph.instrs2graph instrs''
-
-      val (ig, liveout) = Liveness.interferenceGraph cfg
-      val _ = Liveness.show(TextIO.stdOut, ig) 
-*)
-
-      fun preallocRegisterForTemp(temp) =
-        case Temp.Table.look(F.tempMap, temp) of
-          SOME(register) => register
-        | NONE => F.tempName(temp)
 
       fun registerForTemp(temp) =
         case Temp.Table.look(allocation, temp) of
@@ -35,28 +21,18 @@ structure Main = struct
         | NONE => F.tempName(temp)
 
       val format0 = Assem.format(registerForTemp)
-      val format1 = Assem.format(preallocRegisterForTemp)
     in
-      print("\n\nBefore allocation:\n");
-      TextIO.output(out, prolog);
-      app (fn i => TextIO.output(out,format1 i)) instrs';
-      TextIO.output(out, epilog);
-      print("\n\n");
-
-      print("After allocation:\n");
       TextIO.output(out, prolog);
       app (fn i => TextIO.output(out,format0 i)) instrs'';
-      TextIO.output(out, epilog);
-      print("\n\n")
+      TextIO.output(out, epilog)
     end
     
-    | emitproc out (F.STRING(lab, s)) = TextIO.output(out, s)
+    | emitproc out (str as F.STRING(lab, s)) = TextIO.output(out, F.stringFrag(str))
 
   fun withOpenFile fname f = 
     let
       val (out, closeOut) =
-        (*(TextIO.openOut fname, TextIO.closeOut)*)
-        (TextIO.stdOut, (fn _ => ()))
+        (TextIO.openOut fname, TextIO.closeOut)
       
     in
       (f out before closeOut out) 
@@ -66,8 +42,31 @@ structure Main = struct
    fun compile filename = 
        let val absyn = Parse.parse filename
            val frags = (FindEscape.findEscape absyn; Semant.transProg absyn)
+
+           (* Separate the .data fragments from the .text fragments *)
+           val dataFrags = foldr
+            (fn (frag, frags) =>
+              case frag of
+                F.STRING(_, _) => frag :: frags
+              | _ => frags)
+            (nil)
+            (frags)
+
+            val textFrags = foldr
+              (fn (frag, frags) =>
+                case frag of
+                  F.PROC(_) => frag :: frags
+                | _ => frags)
+              (nil)
+              (frags)
         in 
-            withOpenFile (filename ^ ".s") (fn out => (app (emitproc out) frags))
+            withOpenFile
+              (filename ^ ".s")
+              (fn out =>
+                (TextIO.output(out, ".data\n");
+                 app (emitproc out) dataFrags;
+                 TextIO.output(out, "\n\n.text\n");
+                 app (emitproc out) textFrags))
        end
 
 end

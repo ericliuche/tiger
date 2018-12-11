@@ -1,3 +1,7 @@
+.data
+
+
+.text
 fact:
 sub $sp, $sp, 128
 addi $fp, $sp, 64

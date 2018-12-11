@@ -25,6 +25,8 @@ sig
 
   val externalCall: string * Tree.exp list -> Tree.exp
 
+  val stringFrag: frag -> string
+
   val procEntryExit1 : frame * Tree.stm -> Tree.stm
   val procEntryExit2 : frame * Assem.instr list -> Assem.instr list
   val procEntryExit3 : frame * Assem.instr list -> {prolog: string, body: Assem.instr list, epilog: string}
@@ -94,6 +96,8 @@ struct
   fun externalCall(name, args) =
     T.CALL(T.NAME(Temp.namedlabel(name)), args)
 
+  fun stringFrag(STRING(label, literal)) = (Symbol.name label) ^ ": .asciiz \"" ^ literal ^ "\"\n\n"
+    | stringFrag(_) = ErrorMsg.impossible "Cannot treat a non-string fragment as a string"
 
   (* Assign temps to all of the special MIPS registers and initialize the temp map *)
   val (specialregs, argregs, calleesaves, callersaves, tempMap) =
