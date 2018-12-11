@@ -219,8 +219,17 @@ struct
                    "sub $sp, $sp, " ^ (Int.toString 128) ^ "\n" ^
                    "addi $fp, $sp, " ^ (Int.toString 64) ^ "\n"
 
+      val mainEpilog = if (Symbol.name name) = "main" then
+        "move $t0, $v0\n" ^
+        "li $v0, 1\n" ^
+        "move $a0, $t0\n" ^
+        "syscall\n"   
+      else
+        ""
+
       val epilog = "addi $sp, $sp, " ^ (Int.toString 128) ^ "\n" ^
                    "addi $fp, $sp, " ^ (Int.toString 64) ^ "\n" ^
+                   mainEpilog ^
                    "jr $ra\n\n"
     in
       {prolog=prolog, body=body, epilog=epilog}

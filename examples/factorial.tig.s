@@ -1,28 +1,62 @@
-PROCEDURE L11 
-L17:
-li $t1, 1
-ble $t0, $t1, L14
+fact:
+sub $sp, $sp, 128
+addi $fp, $sp, 64
+L14:
+sw $ra, -4($fp)
+sw $a0, 0($fp)
+li $t0, 1
+bge $a2, $t0, L11
+j L12
+L12:
+move $v0, $a1
+L10:
+lw $ra, -4($fp)
+j L13
+L11:
+lw $a0, 0($fp)
+mul $a1, $a1, $a2
+sub $a2, $a2, 1
+jal fact
+j L10
+L13:
+addi $sp, $sp, 128
+addi $fp, $sp, 64
+jr $ra
+
+factorial:
+sub $sp, $sp, 128
+addi $fp, $sp, 64
+L16:
+sw $ra, -4($fp)
+sw $a0, 0($fp)
+move $a2, $a1
+move $a0, $fp
+li $a1, 1
+jal fact
+lw $ra, -4($fp)
 j L15
 L15:
-lw $a0, $fp
-sub $a1, $t0, 1
-jal factorial
-mul $v0, $t0, $v0
-L13:
-j L16
-L14:
-li $v0, 1
-j L13
-L16:
-END L11
+addi $sp, $sp, 128
+addi $fp, $sp, 64
+jr $ra
 
-
-
-PROCEDURE L10 
-L19:
+main:
+sub $sp, $sp, 128
+addi $fp, $sp, 64
+L18:
+sw $ra, -4($fp)
+sw $a0, 0($fp)
 move $a0, $fp
 li $a1, 7
 jal factorial
-j L18
-L18:
-END L10
+lw $ra, -4($fp)
+j L17
+L17:
+addi $sp, $sp, 128
+addi $fp, $sp, 64
+move $t0, $v0
+li $v0, 1
+move $a0, $t0
+syscall
+jr $ra
+
