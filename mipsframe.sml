@@ -173,7 +173,7 @@ struct
     end
 
 
-  fun procEntryExit1({name, formals, numLocals, viewShiftMoves}, body) =
+  fun procEntryExit1(frame as {name, formals, numLocals, viewShiftMoves}, body) =
     let
       fun toSeqTree(stm1 :: stm2 :: nil) = Tree.SEQ(stm1, stm2)
         | toSeqTree(stm :: nil) = stm
@@ -193,11 +193,16 @@ struct
       val calleeSavesMoves = map getCalleeSavesMoves (tempList calleesaves)
       val calleeSavesPrefix = map (fn (m1, m2) => m1) calleeSavesMoves
       val calleeSavesSuffix = map (fn (m1, m2) => m2) calleeSavesMoves
+
+      val raAccess = allocLocal(frame)(true)
+      val raSave = Tree.MOVE(exp(raAccess)(Tree.TEMP(FP)), Tree.TEMP(RA))
+      val raLoad = Tree.MOVE(Tree.TEMP(RA), exp(raAccess)(Tree.TEMP(FP)))
     in
-      Tree.SEQ(argMoves,
-        Tree.SEQ(toSeqTree calleeSavesPrefix,
-          Tree.SEQ(body,
-            toSeqTree calleeSavesSuffix)))
+      Tree.SEQ(raSave,
+        Tree.SEQ(argMoves,
+          Tree.SEQ(toSeqTree calleeSavesPrefix,
+            Tree.SEQ(body,
+              toSeqTree (calleeSavesSuffix @ [raLoad])))))
     end
 
 
