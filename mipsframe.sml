@@ -60,7 +60,8 @@ struct
   datatype access = InFrame of int
                   | InReg of Temp.temp
 
-  type frame = {name: Temp.label, formals: access list, numLocals: int ref, viewShiftMoves: Tree.stm list}
+  type frame = {name: Temp.label, formals: access list, numLocals: int ref,
+                viewShiftMoves: Tree.stm list, maxParams: int ref}
 
   datatype frag = PROC of {body: Tree.stm, frame: frame}
                 | STRING of Temp.label * string
@@ -75,11 +76,11 @@ struct
 
   val wordSize = 4
 
-  fun name({name: Temp.label, formals: access list, numLocals: int ref, viewShiftMoves: Tree.stm list}) = name
+  fun name({name: Temp.label, ...}: frame) = name
 
-  fun formals({name: Temp.label, formals: access list, numLocals: int ref, viewShiftMoves: Tree.stm list}) = formals
+  fun formals({formals: access list, ...}: frame) = formals
 
-  fun allocLocal({name: Temp.label, formals: access list, numLocals: int ref, viewShiftMoves: Tree.stm list}) =
+  fun allocLocal({numLocals: int ref, ...}: frame) =
     let
       fun alloc(true)  = (numLocals := !numLocals + 1; InFrame(0 - !numLocals * wordSize))
         | alloc(false) = InReg(Temp.newtemp())
@@ -173,11 +174,12 @@ struct
         val formalsWithIndexes = ListPair.zip(formals, indexes)
 
     in
-      {name=name, formals=map allocFormal formalsWithIndexes, numLocals=ref 0, viewShiftMoves=(rev (!viewShiftMoves))}
+      {name=name, formals=map allocFormal formalsWithIndexes, numLocals=ref 0,
+       viewShiftMoves=(rev (!viewShiftMoves)), maxParams=ref 0}
     end
 
 
-  fun procEntryExit1(frame as {name, formals, numLocals, viewShiftMoves}, body) =
+  fun procEntryExit1(frame as {name, formals, numLocals, viewShiftMoves, maxParams}, body) =
     let
       fun toSeqTree(stm1 :: stm2 :: nil) = Tree.SEQ(stm1, stm2)
         | toSeqTree(stm :: nil) = stm
@@ -199,8 +201,8 @@ struct
       val calleeSavesSuffix = map (fn (m1, m2) => m2) calleeSavesMoves
 
       val raAccess = allocLocal(frame)(true)
-      val raSave = Tree.MOVE(exp(raAccess)(Tree.TEMP(FP)), Tree.TEMP(RA))
-      val raLoad = Tree.MOVE(Tree.TEMP(RA), exp(raAccess)(Tree.TEMP(FP)))
+      val raSave = Tree.MOVE(exp(raAccess)(Tree.TEMP(SP)), Tree.TEMP(RA))
+      val raLoad = Tree.MOVE(Tree.TEMP(RA), exp(raAccess)(Tree.TEMP(SP)))
     in
       Tree.SEQ(raSave,
         Tree.SEQ(argMoves,
@@ -210,18 +212,31 @@ struct
     end
 
 
-  fun procEntryExit2(frame, body) =
-    body @ [Assem.OPER{assem="",
+  fun procEntryExit2({maxParams, ...}: frame, body) =
+    let
+      fun getMaxParams(instr, prevMax) =
+        case instr of
+          Assem.OPER{jump=SOME(_), src=sources, ...} =>
+            if (length(sources) + 3) > prevMax then length(sources) + 3 else prevMax
+        | _ => prevMax
+
+    in
+      maxParams := foldr getMaxParams 2 body;
+      print("Max params: " ^ (Int.toString (!maxParams)) ^ "\n");
+
+      body @ [Assem.OPER{assem="",
                        src=(tempList (calleesaves @ specialregs)),
                        dst=[],
                        jump=SOME([])}]
+    end
 
-  fun procEntryExit3({name, formals, numLocals, viewShiftMoves}, body) =
+  fun procEntryExit3({name, formals, numLocals, viewShiftMoves, maxParams}, body) =
     let
-      (* TODO: better stack pointer decrement *)
+      val maxFrameSize = (!maxParams) * wordSize
+
       val prolog = (Symbol.name name) ^ ":\n" ^
-                   "sub $sp, $sp, " ^ (Int.toString 128) ^ "\n" ^
-                   "addi $fp, $sp, " ^ (Int.toString 64) ^ "\n"
+                   "move $fp, $sp\n" ^
+                   "sub $sp, $sp, " ^ (Int.toString maxFrameSize) ^ "\n"
 
       val mainEpilog = if (Symbol.name name) = "main" then
         "move $t0, $v0\n" ^
@@ -231,8 +246,8 @@ struct
       else
         ""
 
-      val epilog = "addi $sp, $sp, " ^ (Int.toString 128) ^ "\n" ^
-                   "addi $fp, $sp, " ^ (Int.toString 64) ^ "\n" ^
+      val epilog = "move $sp, $fp\n" ^
+                   "addi $fp, $fp, " ^ (Int.toString maxFrameSize) ^ "\n" ^
                    mainEpilog ^
                    "jr $ra\n\n"
     in
@@ -241,7 +256,7 @@ struct
 
   fun tempName(temp) = Option.getOpt(Temp.Table.look(tempMap, temp), Temp.makestring(temp))
 
-  fun printFrag(frag as PROC{body=stm, frame={name=name, formals=_, numLocals=_, viewShiftMoves=_}}) =
+  fun printFrag(frag as PROC{body=stm, frame={name=name, ...}}) =
         (print "\n\n"; Printtree.printtree(TextIO.stdOut, stm); frag)
     | printFrag(frag as STRING(label, stringVal)) =
         (print "\n\n"; print (Symbol.name (label)); print(" = "); print(stringVal); print "\n"; frag)
