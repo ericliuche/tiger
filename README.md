@@ -17,7 +17,5 @@ We added the following components to enable an end-to-end compilation of a Tiger
 We have submitted a Tiger implementation of a factorial function along with the assembler that
 our compiler produces. The factorial program correctly computes and prints the result of 7!.
 
-We are still facing issues with our compiler being overly-aggressive when coalescing registers,
-so the naive implementation of factorial is broken due to registers being incorrectly coalesced.
-The implementation that we have included is tail-recursive and and our compiler does not
-incorrectly coalesce any of the registers in this version.
+We have also fixed the behavior of our register allocator as we identified an issue where we would
+attempt to simplify precolored nodes.
