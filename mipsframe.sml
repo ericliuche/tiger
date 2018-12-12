@@ -174,7 +174,7 @@ struct
         val formalsWithIndexes = ListPair.zip(formals, indexes)
 
     in
-      {name=name, formals=map allocFormal formalsWithIndexes, numLocals=ref 0,
+      {name=name, formals=map allocFormal formalsWithIndexes, numLocals=ref 1,
        viewShiftMoves=(rev (!viewShiftMoves)), maxParams=ref 0}
     end
 
@@ -196,19 +196,13 @@ struct
            Tree.MOVE(Tree.TEMP(temp), Tree.TEMP(newTemp)))
         end
 
-      val calleeSavesMoves = map getCalleeSavesMoves (tempList calleesaves)
+      val calleeSavesMoves = map getCalleeSavesMoves (RA :: (tempList calleesaves))
       val calleeSavesPrefix = map (fn (m1, m2) => m1) calleeSavesMoves
-      val calleeSavesSuffix = map (fn (m1, m2) => m2) calleeSavesMoves
-
-      val raAccess = allocLocal(frame)(true)
-      val raSave = Tree.MOVE(exp(raAccess)(Tree.TEMP(SP)), Tree.TEMP(RA))
-      val raLoad = Tree.MOVE(Tree.TEMP(RA), exp(raAccess)(Tree.TEMP(SP)))
+      val calleeSavesSuffix = map (fn (m1, m2) => m2) (rev(calleeSavesMoves))
     in
-      Tree.SEQ(raSave,
         Tree.SEQ(argMoves,
           Tree.SEQ(toSeqTree calleeSavesPrefix,
-            Tree.SEQ(body,
-              toSeqTree (calleeSavesSuffix @ [raLoad])))))
+            Tree.SEQ(body, toSeqTree calleeSavesSuffix)))
     end
 
 
@@ -231,9 +225,10 @@ struct
 
   fun procEntryExit3({name, formals, numLocals, viewShiftMoves, maxParams}, body) =
     let
-      val maxFrameSize = (!maxParams) * wordSize
+      val maxFrameSize = (!maxParams + !numLocals) * wordSize
 
       val prolog = (Symbol.name name) ^ ":\n" ^
+                   "sw $fp -4($sp)\n" ^
                    "move $fp, $sp\n" ^
                    "sub $sp, $sp, " ^ (Int.toString maxFrameSize) ^ "\n"
 
@@ -246,7 +241,7 @@ struct
         ""
 
       val epilog = "move $sp, $fp\n" ^
-                   "addi $fp, $fp, " ^ (Int.toString maxFrameSize) ^ "\n" ^
+                   "lw $fp -4($fp)\n" ^
                    mainEpilog ^
                    "jr $ra\n\n"
     in

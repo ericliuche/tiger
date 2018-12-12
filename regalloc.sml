@@ -155,7 +155,11 @@ struct
 
       (* Adjacency list representation for the interference graph *)
       val adjList = ref (foldr
-        (fn (node, table) => Graph.Table.enter(table, node, (Graph.adj(node))))
+        (fn (node, table) => 
+          if containsNode(precolored, node) then
+            Graph.Table.enter(table, node, union(removeFromList(precolored, node, Graph.eq), Graph.adj(node), Graph.eq))
+          else
+            Graph.Table.enter(table, node, Graph.adj(node)))
         (Graph.Table.empty)
         (igraphNodes))
 
@@ -346,7 +350,6 @@ struct
           (move as (n1, n2)) :: rest =>
             let
 
-              val _ = log("Coalescing " ^ (nodeAndTempName n1) ^ " and " ^ (nodeAndTempName n2) ^ "\n")
               
               (* Is the given node precolored? *)
               fun isPrecolored(n) = Option.isSome(Temp.Table.look(precoloredMap, igraphGtemp n))
@@ -402,6 +405,7 @@ struct
               (* Combine the two given nodes into a single logical node for the interference graph *)
               fun combine(u, v) =
                 let
+                  val _ = log("Combining " ^ (nodeAndTempName u) ^ " and " ^ (nodeAndTempName v) ^ "\n")
                   val uMoves = Option.getOpt(Graph.Table.look(!igraphMoveTable, u), nil)
                   val vMoves = Option.getOpt(Graph.Table.look(!igraphMoveTable, v), nil)
 
@@ -432,11 +436,6 @@ struct
                       end)
                     vMoves;
 
-(*                  movesWL := (u, v) :: !movesWL;
-                  igraphMoveList := (u, v) :: !igraphMoveList;
-                  igraphMoveTable := Graph.Table.enter(!igraphMoveTable, u, (u, v) :: uMoves);
-                  igraphMoveTable := Graph.Table.enter(!igraphMoveTable, v, (u, v) :: vMoves);*)
-
                   app handleAdjacent (adjacent(v));
 
                   if degree(u) >= (Frame.numReg) andalso containsNode(!freezeWL, u) then
@@ -466,21 +465,19 @@ struct
                 end
             in
               movesWL := removeFromList(!movesWL, move, moveEq);
-
               (if Graph.eq(u, v) then
                 (coalescedMoves := move :: !coalescedMoves;
-                addWorkList(u))
+                 addWorkList(u))
 
               else if isPrecolored(v) orelse isAdj(u, v) then
                 (constrainedMoves := move :: !constrainedMoves;
                  addWorkList(u);
                  addWorkList(v))
 
-              else if isPrecolored(u) andalso
-                      (foldr (fn (t, restIsOk) => restIsOk andalso ok(t)) (true) (adjacent(v))) orelse
-                      (not (isPrecolored(u))) andalso
-                      (conservative(union(adjacent(u), adjacent(v), Graph.eq))) then
-
+              else if (isPrecolored(u) andalso
+                      (foldr (fn (t, restIsOk) => restIsOk andalso ok(t)) (true) (adjacent(v)))) orelse
+                      ((not (isPrecolored(u))) andalso
+                      (conservative(union(adjacent(u), adjacent(v), Graph.eq)))) then
                 (coalescedMoves := move :: !coalescedMoves;
                  combine(u, v);
                  addWorkList(u))
@@ -554,6 +551,8 @@ struct
                     | Assem.MOVE{dst=dst, src=src, ...} =>
                         (if dst = temp then 1 else 0) +
                         (if src = temp then 1 else 0) +
+                        calcCost(rest)
+                    | Assem.LABEL{...} =>
                         calcCost(rest))
 
                 | calcCost(nil) = 0
@@ -561,17 +560,21 @@ struct
               calcCost(instrs)
             end
 
-          val costs = map cost (!simplifyWL)
-          val nodesAndCosts = ListPair.zip(!simplifyWL, costs)
+          val costs = map cost (!spillWL)
+          val nodesAndCosts = ListPair.zip(!spillWL, costs)
 
           (* Find the node with minimum cost in the spill worklist *)
           fun findMin((node, cost), (minNode, minCost)) =
-            if minCost < cost andalso minCost >= 0 then
-              (minNode, minCost)
-            else
-              (node, cost)
+            let 
+              val scaledCost = Real.fromInt(cost) / Real.fromInt(degree node)
+            in
+              if minCost < scaledCost andalso minCost >= Real.fromInt(0) then
+                (minNode, minCost)
+              else
+                (node, scaledCost)
+            end
 
-          val baseCase = (hd(!spillWL), ~1)
+          val baseCase = (hd(!spillWL), Real.fromInt(~1))
           val (minNode, minCost) = foldr findMin baseCase nodesAndCosts
 
         in
