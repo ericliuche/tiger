@@ -6,9 +6,9 @@ factorial:
 move $fp, $sp
 sub $sp, $sp, 20
 L14:
-sw $ra, -4($sp)
 sw $a0, 0($fp)
 sw $a1, -8($fp)
+sw $ra, -4($fp)
 lw $t0, -8($fp)
 li $t1, 1
 ble $t0, $t1, L11
@@ -21,7 +21,7 @@ jal factorial
 lw $t0, -8($fp)
 mul $v0, $t0, $v0
 L10:
-lw $ra, -4($sp)
+lw $ra, -4($fp)
 j L13
 L11:
 li $v0, 1
@@ -35,12 +35,12 @@ main:
 move $fp, $sp
 sub $sp, $sp, 20
 L16:
-sw $ra, -4($sp)
 sw $a0, 0($fp)
+sw $ra, -4($fp)
 move $a0, $fp
 li $a1, 7
 jal factorial
-lw $ra, -4($sp)
+lw $ra, -4($fp)
 j L15
 L15:
 move $sp, $fp

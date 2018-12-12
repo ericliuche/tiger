@@ -196,19 +196,13 @@ struct
            Tree.MOVE(Tree.TEMP(temp), Tree.TEMP(newTemp)))
         end
 
-      val calleeSavesMoves = map getCalleeSavesMoves (tempList calleesaves)
+      val calleeSavesMoves = map getCalleeSavesMoves (RA :: (tempList calleesaves))
       val calleeSavesPrefix = map (fn (m1, m2) => m1) calleeSavesMoves
-      val calleeSavesSuffix = map (fn (m1, m2) => m2) calleeSavesMoves
-
-      val raAccess = allocLocal(frame)(true)
-      val raSave = Tree.MOVE(exp(raAccess)(Tree.TEMP(SP)), Tree.TEMP(RA))
-      val raLoad = Tree.MOVE(Tree.TEMP(RA), exp(raAccess)(Tree.TEMP(SP)))
+      val calleeSavesSuffix = map (fn (m1, m2) => m2) (rev(calleeSavesMoves))
     in
-      Tree.SEQ(raSave,
         Tree.SEQ(argMoves,
           Tree.SEQ(toSeqTree calleeSavesPrefix,
-            Tree.SEQ(body,
-              toSeqTree (calleeSavesSuffix @ [raLoad])))))
+            Tree.SEQ(body, toSeqTree calleeSavesSuffix)))
     end
 
 
