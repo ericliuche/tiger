@@ -133,7 +133,7 @@ struct
 
 
       (* Print the interference graph *)
-      val _ = if true then Liveness.show(TextIO.stdOut, igraph) else ()
+      val _ = if DEBUG then Liveness.show(TextIO.stdOut, igraph) else ()
 
 
       (* Track which temps have been assigned colors already and which nodes they correspond to *)
@@ -176,7 +176,7 @@ struct
       val spilledNodes = ref []
 
       (* Track nodes that have been colored and the colors assigned to them *)
-      val coloredNodes = ref []
+      val coloredNodes = ref precolored
       val colors = ref precoloredMap
 
 
@@ -200,9 +200,10 @@ struct
 
       (* Get the degree of the given node *)
       fun degree(node) =
+        if containsNode(precolored, node) then 1000000 else (
         case Graph.Table.look(!degrees, node) of
           SOME(degree) => degree
-        | NONE => ErrorMsg.impossible "Missing degree for node"
+        | NONE => ErrorMsg.impossible "Missing degree for node")
 
 
       (* Move lists - every move should always be in exactly on of these lists *)
@@ -249,7 +250,9 @@ struct
 
       (* Initialize the spill, freeze, and simplify worklists *)
       fun makeWorklist(node :: rest, spillWL, freezeWL, simplifyWL) =
-            if degree(node) >= Frame.numReg then
+            if containsNode(precolored, node) then 
+              makeWorklist(rest, spillWL, freezeWL, simplifyWL)
+            else if degree(node) >= Frame.numReg then
               makeWorklist(rest, node :: spillWL, freezeWL, simplifyWL)
             else if moveRelated(node) then
               makeWorklist(rest, spillWL, node :: freezeWL, simplifyWL)
@@ -581,8 +584,11 @@ struct
         let
           val node = pickSpillCandidate()
         in
-          simplifyWL := node :: !simplifyWL;
-          freezeMoves(node)
+          if not(containsNode(precolored, node)) then
+            (simplifyWL := node :: !simplifyWL;
+            freezeMoves(node))
+          else
+            ()
         end
 
       (* Rewrite the program be inserting appropriate load and store instructions for spilled temps *)
@@ -678,8 +684,7 @@ struct
         case !selectStack of
           node :: rest =>
             let
-              val okColors = ref (Frame.registerList(
-                (Frame.callersaves) @ (Frame.calleesaves) @ (Frame.specialregs) @ (Frame.argregs)))
+              val okColors = ref (Frame.registerList((Frame.callersaves) @ (Frame.calleesaves)))
 
               val alreadyColored = Option.isSome(Temp.Table.look(!colors, (igraphGtemp node)))
 
@@ -777,11 +782,7 @@ struct
         end
 
       else
-        (log("Coalesced nodes:\n");
-         app (fn n => log((nodeAndTempName n) ^ ": " ^ (nodeAndTempName (getAlias(n))) ^ "\n")) (!coalescedNodes);
-        print("PRECOLORED:\n");
-        app (fn n => print((nodeAndTempName n) ^ "\n")) precolored;
-        (filterUnnecessaryMoves instrs, !colors))
+        (filterUnnecessaryMoves instrs, !colors)
 
     end
 

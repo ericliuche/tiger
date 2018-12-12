@@ -13,7 +13,7 @@ struct
   structure T = Tree
 
   (* Temps which become trashed during procedure calls *)
-  val calldefs = Frame.tempList((Frame.argregs) @ (Frame.callersaves))
+  val calldefs = Frame.tempList((Frame.argregs) @ (Frame.callersaves) @ (Frame.specialregs))
 
   fun intToStr i = if (i < 0) then "-" ^ (Int.toString (~i)) else (Int.toString i)
 

@@ -2,60 +2,47 @@
 
 
 .text
-fact:
+factorial:
 move $fp, $sp
-sub $sp, $sp, 24
+sub $sp, $sp, 20
 L14:
 sw $ra, -4($sp)
 sw $a0, 0($fp)
-li $t0, 1
-bge $a2, $t0, L11
+sw $a1, -8($fp)
+lw $t0, -8($fp)
+li $t1, 1
+ble $t0, $t1, L11
 j L12
 L12:
-move $v0, $a1
+lw $a0, 0($fp)
+lw $t0, -8($fp)
+sub $a1, $t0, 1
+jal factorial
+lw $t0, -8($fp)
+mul $v0, $t0, $v0
 L10:
 lw $ra, -4($sp)
 j L13
 L11:
-lw $a0, 0($fp)
-mul $a1, $a1, $a2
-sub $a2, $a2, 1
-jal fact
+li $v0, 1
 j L10
 L13:
 move $sp, $fp
-addi $fp, $fp, 24
-jr $ra
-
-factorial:
-move $fp, $sp
-sub $sp, $sp, 24
-L16:
-sw $ra, -4($sp)
-sw $a0, 0($fp)
-move $a2, $a1
-move $a0, $fp
-li $a1, 1
-jal fact
-lw $ra, -4($sp)
-j L15
-L15:
-move $sp, $fp
-addi $fp, $fp, 24
+addi $fp, $fp, 20
 jr $ra
 
 main:
 move $fp, $sp
 sub $sp, $sp, 20
-L18:
+L16:
 sw $ra, -4($sp)
 sw $a0, 0($fp)
 move $a0, $fp
 li $a1, 7
 jal factorial
 lw $ra, -4($sp)
-j L17
-L17:
+j L15
+L15:
 move $sp, $fp
 addi $fp, $fp, 20
 move $t0, $v0

@@ -222,10 +222,9 @@ struct
 
     in
       maxParams := foldr getMaxParams 2 body;
-      print("Max params: " ^ (Int.toString (!maxParams)) ^ "\n");
 
       body @ [Assem.OPER{assem="",
-                       src=(tempList (calleesaves @ specialregs)),
+                       src=(tempList (calleesaves)) @ [ZERO, RV, SP, FP],
                        dst=[],
                        jump=SOME([])}]
     end
