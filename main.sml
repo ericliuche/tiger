@@ -11,9 +11,10 @@ structure Main = struct
       val stms' = Canon.traceSchedule(Canon.basicBlocks stms)
 	    val instrs = List.concat(map (MipsCodegen.codegen frame) stms')
       val instrs' = F.procEntryExit2(frame, instrs)
-      val {prolog, body=instrs'', epilog} = F.procEntryExit3(frame, instrs')
 
       val (instrs'', allocation) = RegAlloc.alloc(instrs', frame)
+
+      val {prolog, body=instrs''', epilog} = F.procEntryExit3(frame, instrs'')
 
       fun registerForTemp(temp) =
         case Temp.Table.look(allocation, temp) of
@@ -23,7 +24,7 @@ structure Main = struct
       val format0 = Assem.format(registerForTemp)
     in
       TextIO.output(out, prolog);
-      app (fn i => TextIO.output(out,format0 i)) instrs'';
+      app (fn i => TextIO.output(out,format0 i)) instrs''';
       TextIO.output(out, epilog)
     end
     
