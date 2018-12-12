@@ -1,18 +1,23 @@
-# Register Allocation
+# Integration
 
 ### Nick Flanders and Chenyang Eric Liu
 
-Our register allocator attempts to coalesce and spill registers whenever
-necessary. To simplify our implementation, we deviated from the specification
-given in Appel's book by only maintaining an adjacency list rather than both
-an adjacency list and an adjacency set. This slightly simplifies our
-implementation at the cost of less efficient look ups.
+We added the following components to enable an end-to-end compilation of a Tiger source file:
 
-Additionally, we included a final step in the register allocator which filters
-out any unnecessary move instructions that are the result of moving between two
-temps which were colored with the same register.
+- Added support for `Frame.stringFrag` to generate assembler for a string
+- Updated our frame representation with fields to track moves required for the view shift and the maximum number of outgoing parameters within a frame
+- Logic to generate the view shift moves when creating a new frame
+- Logic within `procEntryExit1` to save all calleesaves registers to new temps in the prologue and to restore them in the epilogue
+- Logic to save/load the return addrees appropriately
+- `procEntryExit2` now determines the maximum number of outgoing params and stores this value on the frame
+- `procEntryExit3` now appropriately decrements and increments the frame and stack pointers
+- Separate handling for string and proc fragments to correctly generate `.data` and `.text` sections in the resulting assembler
+- When translating the main procedure, we add a MIPS syscall at the end to print the result to the console
 
-Due to a bug in our implementation of the coalescing and spilling stages of the
-register allocator, certain programs which contain specific interactions
-between coalesced and spilled registers cause the compiler to break as it is
-unable to color a wrongly-coalesced node.
+We have submitted a Tiger implementation of a factorial function along with the assembler that
+our compiler produces. The factorial program correctly computes and prints the result of 7!.
+
+We are still facing issues with our compiler being overly-aggressive when coalescing registers,
+so the naive implementation of factorial is broken due to registers being incorrectly coalesced.
+The implementation that we have included is tail-recursive and and our compiler does not
+incorrectly coalesce any of the registers in this version.
